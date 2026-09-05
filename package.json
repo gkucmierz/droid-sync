@@ -1,0 +1,19 @@
+{
+  "name": "droid-sync",
+  "version": "1.0.0",
+  "description": "Android Screenshot & Media Runner with Vue 3 Web UI",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "postinstall": "npm run install:all",
+    "install:all": "cd server && npm install && cd ../ui && npm install",
+    "dev": "concurrently -k -n \"SERVER,UI\" -c \"magenta,cyan\" \"npm run server\" \"npm run ui\"",
+    "start": "npm run dev",
+    "server": "cd server && npm start",
+    "ui": "cd ui && npm run dev",
+    "build": "cd ui && npm run build"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

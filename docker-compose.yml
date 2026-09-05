@@ -1,0 +1,17 @@
+name: droid-sync
+
+services:
+  droid-sync:
+    container_name: droid-sync
+    build:
+      context: .
+      dockerfile: Dockerfile
+    expose:
+      - "80"
+    restart: unless-stopped
+    networks:
+      - npm_public
+
+networks:
+  npm_public:
+    external: true

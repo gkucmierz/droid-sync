@@ -1,0 +1,474 @@
+<script setup>
+import { ref } from 'vue';
+import {
+  Camera,
+  RefreshCw,
+  FolderOpen,
+  Wifi,
+  Settings,
+  AlertTriangle,
+  CheckCircle2,
+  Info,
+  Server
+} from 'lucide-vue-next';
+
+import { useDroidSync } from './composables/useDroidSync.js';
+import { useI18n } from './locales.js';
+import DeviceCard from './components/DeviceCard.vue';
+import GalleryView from './components/GalleryView.vue';
+import SettingsModal from './components/SettingsModal.vue';
+import RunnerOfflineCard from './components/RunnerOfflineCard.vue';
+
+const { currentLang, t, setLang } = useI18n();
+
+const {
+  isRunnerConnected,
+  device,
+  telemetry,
+  destinationDir,
+  pollIntervalMs,
+  autoDeleteFromPhone,
+  lastSyncTime,
+  screenshots,
+  isSyncing,
+  isSnapping,
+  actionMessage,
+  messageType,
+  getApiBaseUrl,
+  triggerSync,
+  triggerRemoteSnap,
+  openFolderInFinder,
+  updateConfig,
+  enableWirelessAdb,
+  connectWifi,
+  autoConnectWireless,
+  detectWifiIp,
+  copyImageToClipboard
+} = useDroidSync();
+
+const isSettingsOpen = ref(false);
+
+const openSettings = () => {
+  isSettingsOpen.value = true;
+};
+
+const closeSettings = () => {
+  isSettingsOpen.value = false;
+};
+</script>
+
+<template>
+  <div class="app-layout">
+    <!-- Feedback Toast Banner -->
+    <transition name="toast-fade">
+      <div 
+        v-if="actionMessage" 
+        class="toast-banner" 
+        :class="'toast-' + messageType"
+      >
+        <component 
+          :is="messageType === 'success' ? CheckCircle2 : messageType === 'error' ? AlertTriangle : Info" 
+          :size="18" 
+        />
+        <span>{{ actionMessage }}</span>
+      </div>
+    </transition>
+
+    <!-- Header Hero Bar -->
+    <header class="app-header glass-panel">
+      <div class="header-left">
+        <div class="logo-mark">
+          <Camera :size="20" />
+        </div>
+        <div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <h1 class="app-title">droid-sync</h1>
+            <span class="app-version font-mono">v1.0.0</span>
+          </div>
+          <p class="app-subtitle">{{ t.appSubtitle }}</p>
+        </div>
+      </div>
+
+      <!-- Header Controls: Language Switcher + Runner Indicator -->
+      <div class="header-right">
+        <div class="lang-switch">
+          <button 
+            type="button" 
+            :class="{ active: currentLang === 'en' }" 
+            @click="setLang('en')"
+          >EN</button>
+          <button 
+            type="button" 
+            :class="{ active: currentLang === 'pl' }" 
+            @click="setLang('pl')"
+          >PL</button>
+        </div>
+
+        <div class="runner-indicator" :class="{ connected: isRunnerConnected }">
+          <Server :size="14" />
+          <span>{{ isRunnerConnected ? t.runnerPort(40880) : t.runnerDisconnected }}</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content Container -->
+    <main class="main-content">
+      <!-- Dedicated Runner Offline Onboarding Card -->
+      <RunnerOfflineCard v-if="!isRunnerConnected" />
+
+      <!-- Device Telemetry Card -->
+      <DeviceCard 
+        :is-runner-connected="isRunnerConnected"
+        :device="device"
+        :telemetry="telemetry"
+        :destination-dir="destinationDir"
+        :last-sync-time="lastSyncTime"
+      />
+
+      <!-- Quick Action Toolbar -->
+      <div class="actions-toolbar glass-panel">
+        <div class="action-buttons-group">
+          <!-- 1. Remote Snap -->
+          <button 
+            class="action-btn primary-action" 
+            :disabled="!device || !device.isAuthorized || isSnapping"
+            @click="triggerRemoteSnap"
+            type="button"
+          >
+            <Camera :size="17" :class="{ 'animate-pulse': isSnapping }" />
+            <span>{{ isSnapping ? t.actionSnapping : t.actionSnap }}</span>
+          </button>
+
+          <!-- 2. Manual Sync -->
+          <button 
+            class="action-btn" 
+            :disabled="!device || !device.isAuthorized || isSyncing"
+            @click="triggerSync"
+            type="button"
+          >
+            <RefreshCw :size="16" :class="{ 'animate-spin': isSyncing }" />
+            <span>{{ isSyncing ? t.actionSyncing : t.actionSync }}</span>
+          </button>
+
+          <!-- 3. Open Folder in Finder -->
+          <button 
+            class="action-btn" 
+            @click="openFolderInFinder"
+            type="button"
+          >
+            <FolderOpen :size="16" />
+            <span>{{ t.actionFinder }}</span>
+          </button>
+
+          <!-- 4. Wi-Fi Setup Quick Trigger -->
+          <button 
+            class="action-btn" 
+            @click="openSettings"
+            type="button"
+          >
+            <Wifi :size="16" />
+            <span>{{ t.actionWifi }}</span>
+          </button>
+        </div>
+
+        <!-- Settings Cog -->
+        <button class="settings-trigger-btn" @click="openSettings" type="button">
+          <Settings :size="18" />
+          <span>{{ t.actionSettings }}</span>
+        </button>
+      </div>
+
+      <!-- Screenshot Gallery Grid -->
+      <GalleryView 
+        :screenshots="screenshots"
+        :api-base-url="getApiBaseUrl()"
+        @copy-clipboard="copyImageToClipboard"
+      />
+    </main>
+
+    <!-- Settings & Wireless Modal -->
+    <SettingsModal 
+      :is-open="isSettingsOpen"
+      :current-dir="destinationDir"
+      :poll-interval-ms="pollIntervalMs"
+      :auto-delete="autoDeleteFromPhone"
+      :device="device"
+      :telemetry="telemetry"
+      @close="closeSettings"
+      @save="updateConfig"
+      @enable-wireless="enableWirelessAdb"
+      @connect-wifi="connectWifi"
+      @auto-connect-wireless="autoConnectWireless"
+    />
+  </div>
+</template>
+
+<style scoped>
+.app-layout {
+  max-width: 1380px;
+  margin: 0 auto;
+  padding: 24px 20px 60px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Toast Banner */
+.toast-banner {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 10000;
+  padding: 12px 20px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(12px);
+}
+
+.toast-success {
+  background: rgba(16, 185, 129, 0.9);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.toast-error {
+  background: rgba(239, 68, 68, 0.9);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.toast-info {
+  background: rgba(34, 211, 238, 0.9);
+  color: #090d16;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.toast-fade-enter-active,
+.toast-fade-leave-active {
+  transition: all 0.25s ease;
+}
+
+.toast-fade-enter-from,
+.toast-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-10px);
+}
+
+/* Header */
+.app-header {
+  padding: 18px 24px;
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.logo-mark {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  background: rgba(34, 211, 238, 0.15);
+  border: 1px solid rgba(34, 211, 238, 0.35);
+  color: #22d3ee;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 15px rgba(34, 211, 238, 0.2);
+}
+
+.app-title {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 900;
+  color: #f8fafc;
+  letter-spacing: -0.02em;
+}
+
+.app-version {
+  font-size: 0.72rem;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #94a3b8;
+}
+
+.app-subtitle {
+  margin: 2px 0 0 0;
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.lang-switch {
+  display: inline-flex;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.lang-switch button {
+  background: transparent;
+  border: none;
+  padding: 5px 12px;
+  color: #64748b;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+.lang-switch button.active {
+  background: #22d3ee;
+  color: #0f172a;
+}
+
+.lang-switch button:hover:not(.active) {
+  color: #cbd5e1;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.runner-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.72rem;
+  font-weight: 700;
+  background: rgba(239, 68, 68, 0.12);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.runner-indicator.connected {
+  background: rgba(16, 185, 129, 0.12);
+  color: #34d399;
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+/* Main Content */
+.main-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Actions Toolbar */
+.actions-toolbar {
+  padding: 14px 20px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.action-buttons-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #f8fafc;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.action-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.25);
+  transform: translateY(-1px);
+}
+
+.action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.primary-action {
+  background: #22d3ee;
+  border-color: #22d3ee;
+  color: #090d16;
+}
+
+.primary-action:hover:not(:disabled) {
+  background: #67e8f9;
+  border-color: #67e8f9;
+  box-shadow: 0 0 15px rgba(34, 211, 238, 0.4);
+}
+
+.settings-trigger-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #94a3b8;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.settings-trigger-btn:hover {
+  color: #f8fafc;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+.animate-pulse {
+  animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+</style>
