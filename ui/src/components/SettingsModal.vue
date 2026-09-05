@@ -101,8 +101,8 @@ onUnmounted(() => {
       <!-- Modal Header -->
       <div class="modal-header">
         <h3 class="modal-title">{{ t.settingsTitle }}</h3>
-        <button class="modal-close-btn" @click="$emit('close')" type="button">
-          <X :size="18" />
+        <button class="modal-close-btn" @click="$emit('close')" type="button" aria-label="Zamknij">
+          <X :size="18" :stroke-width="2.2" />
         </button>
       </div>
 
@@ -143,16 +143,25 @@ onUnmounted(() => {
           <span class="form-hint">{{ t.intervalHint }}</span>
         </div>
 
-        <!-- 3. Auto Delete Toggle -->
-        <div class="form-group checkbox-group">
-          <label class="checkbox-label">
-            <input v-model="localAutoDelete" type="checkbox" class="custom-checkbox" />
-            <div style="display: flex; align-items: center; gap: 8px;">
+        <!-- 3. Auto Delete Toggle (LoL Style Switch) -->
+        <div class="toggle-row-group">
+          <div class="toggle-left">
+            <label class="toggle-title-row" for="auto-delete-switch">
               <Trash2 :size="16" style="color: #ef4444;" />
-              <span>{{ t.autoDeleteLabel }}</span>
-            </div>
+              <span class="toggle-title">{{ t.autoDeleteLabel }}</span>
+            </label>
+            <span class="form-hint">{{ t.autoDeleteHint }}</span>
+          </div>
+
+          <label class="switch-label" for="auto-delete-switch">
+            <input 
+              id="auto-delete-switch"
+              v-model="localAutoDelete" 
+              type="checkbox" 
+              class="switch-input" 
+            />
+            <div class="switch-slider"></div>
           </label>
-          <span class="form-hint" style="margin-left: 28px;">{{ t.autoDeleteHint }}</span>
         </div>
 
         <!-- 4. Wireless ADB Setup Section -->
@@ -310,10 +319,27 @@ onUnmounted(() => {
   color: #94a3b8;
   cursor: pointer;
   padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 .modal-close-btn:hover {
   color: #ef4444;
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.modal-close-btn:focus,
+.modal-close-btn:focus-visible,
+.modal-close-btn:active {
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 .modal-body {
@@ -360,25 +386,98 @@ onUnmounted(() => {
   line-height: 1.4;
 }
 
-.checkbox-group {
+/* LoL Style Switch */
+.toggle-row-group {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: all 0.2s ease;
+}
+
+.toggle-left {
+  display: flex;
+  flex-direction: column;
   gap: 4px;
 }
 
-.checkbox-label {
+.toggle-title-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   cursor: pointer;
-  font-size: 0.85rem;
-  font-weight: 600;
+}
+
+.toggle-title {
+  font-size: 0.88rem;
+  font-weight: 700;
   color: #e2e8f0;
 }
 
-.custom-checkbox {
-  width: 18px;
-  height: 18px;
-  accent-color: #22d3ee;
+.switch-label {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
   cursor: pointer;
+  flex-shrink: 0;
+  outline: none !important;
+}
+
+.switch-input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  outline: none !important;
+}
+
+.switch-slider {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.switch-slider::before {
+  content: "";
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  left: 3px;
+  bottom: 3px;
+  background: #94a3b8;
+  border-radius: 50%;
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.25s;
+}
+
+.switch-input:checked + .switch-slider {
+  background: rgba(34, 211, 238, 0.2);
+  border-color: rgba(34, 211, 238, 0.5);
+  box-shadow: 0 0 10px rgba(34, 211, 238, 0.3);
+}
+
+.switch-input:checked + .switch-slider::before {
+  transform: translateX(20px);
+  background: #22d3ee;
+  box-shadow: 0 0 8px rgba(34, 211, 238, 0.6);
+}
+
+.switch-input:focus + .switch-slider,
+.switch-input:focus-visible + .switch-slider {
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 /* Wireless ADB Section */

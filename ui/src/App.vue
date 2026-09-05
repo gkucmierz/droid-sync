@@ -9,17 +9,21 @@ import {
   AlertTriangle,
   CheckCircle2,
   Info,
-  Server
+  Server,
+  Sun,
+  Moon
 } from 'lucide-vue-next';
 
 import { useDroidSync } from './composables/useDroidSync.js';
 import { useI18n } from './locales.js';
+import { useTheme } from './composables/useTheme.js';
 import DeviceCard from './components/DeviceCard.vue';
 import GalleryView from './components/GalleryView.vue';
 import SettingsModal from './components/SettingsModal.vue';
 import RunnerOfflineCard from './components/RunnerOfflineCard.vue';
 
 const { currentLang, t, setLang } = useI18n();
+const { theme, toggleTheme } = useTheme();
 
 const {
   isRunnerConnected,
@@ -89,8 +93,15 @@ const closeSettings = () => {
         </div>
       </div>
 
-      <!-- Header Controls: Language Switcher + Runner Indicator -->
+      <!-- Header Controls: Runner Indicator + Language Switcher + Theme Switcher -->
       <div class="header-right">
+        <!-- Runner Indicator (first from left) -->
+        <div class="runner-indicator" :class="{ connected: isRunnerConnected }">
+          <Server :size="14" />
+          <span>{{ isRunnerConnected ? t.runnerPort(40880) : t.runnerDisconnected }}</span>
+        </div>
+
+        <!-- Language Switcher -->
         <div class="lang-switch">
           <button 
             type="button" 
@@ -104,10 +115,16 @@ const closeSettings = () => {
           >PL</button>
         </div>
 
-        <div class="runner-indicator" :class="{ connected: isRunnerConnected }">
-          <Server :size="14" />
-          <span>{{ isRunnerConnected ? t.runnerPort(40880) : t.runnerDisconnected }}</span>
-        </div>
+        <!-- Theme Toggle Button -->
+        <button 
+          class="btn-theme-toggle" 
+          :aria-label="theme === 'dark' ? 'Włącz jasny motyw' : 'Włącz ciemny motyw'" 
+          @click="toggleTheme" 
+          type="button"
+        >
+          <Sun v-if="theme === 'dark'" :size="17" class="theme-icon-sun" />
+          <Moon v-else :size="17" class="theme-icon-moon" />
+        </button>
       </div>
     </header>
 
@@ -347,6 +364,56 @@ const closeSettings = () => {
 .lang-switch button:hover:not(.active) {
   color: #cbd5e1;
   background: rgba(255, 255, 255, 0.05);
+}
+
+.btn-theme-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: var(--btn-bg);
+  border: 1px solid var(--btn-border);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  outline: none !important;
+  box-shadow: none !important;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.btn-theme-toggle:focus,
+.btn-theme-toggle:focus-visible,
+.btn-theme-toggle:active {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.btn-theme-toggle:hover {
+  background: var(--btn-bg-hover);
+  border-color: rgba(251, 191, 36, 0.5);
+}
+
+.theme-icon-sun {
+  color: #fbbf24 !important;
+  stroke: #fbbf24 !important;
+  filter: drop-shadow(0 0 6px rgba(251, 191, 36, 0.6));
+  transition: transform 0.25s ease;
+}
+
+.theme-icon-moon {
+  color: #c084fc !important;
+  stroke: #c084fc !important;
+  filter: drop-shadow(0 0 6px rgba(192, 132, 252, 0.6));
+  transition: transform 0.25s ease;
+}
+
+.btn-theme-toggle:hover .theme-icon-sun {
+  transform: rotate(30deg) scale(1.12);
+}
+
+.btn-theme-toggle:hover .theme-icon-moon {
+  transform: rotate(-15deg) scale(1.12);
 }
 
 .runner-indicator {

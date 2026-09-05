@@ -171,8 +171,8 @@ onUnmounted(() => {
               <Download :size="15" />
               <span>{{ t.modalDownload }}</span>
             </a>
-            <button class="close-btn" @click="selectedImage = null" type="button">
-              <X :size="18" />
+            <button class="close-btn" @click="selectedImage = null" type="button" aria-label="Zamknij">
+              <X :size="18" :stroke-width="2.2" />
             </button>
           </div>
         </div>
@@ -492,11 +492,24 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 32px;
+  height: 32px;
   border-radius: 6px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 .close-btn:hover {
   color: #ef4444;
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.close-btn:focus,
+.close-btn:focus-visible,
+.close-btn:active {
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 .preview-img-wrap {
