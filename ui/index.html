@@ -2,42 +2,46 @@
 <html lang="pl">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2322d3ee' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect width='14' height='20' x='5' y='2' rx='2' ry='2'/><path d='M12 18h.01'/></svg>" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Automatyczny runner & synchronizacja screenshotów z urządzeń Android na macOS przez Wi-Fi i USB ADB." />
+
+    <!-- PWA & Mobile Web App Meta -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#090d16" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="droid-sync" />
+    <meta name="application-name" content="droid-sync" />
+
+    <!-- Icons -->
+    <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/droid-sync.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="apple-touch-icon" sizes="192x192" href="/icon-192.png" />
+    <link rel="apple-touch-icon" sizes="512x512" href="/icon-512.png" />
+
+    <!-- Open Graph (Facebook / Discord / Telegram / LinkedIn) -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://droid-sync.7u.pl/" />
+    <meta property="og:title" content="droid-sync // Android Screenshot & Media Runner" />
+    <meta property="og:description" content="Automatyczny runner i bezprzewodowa synchronizacja zrzutów ekranu oraz multimediów z telefonów Android na macOS." />
+    <meta property="og:image" content="https://droid-sync.7u.pl/droid-sync.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="512" />
+    <meta property="og:image:height" content="512" />
+
+    <!-- Twitter Cards -->
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="droid-sync // Android Screenshot & Media Runner" />
+    <meta name="twitter:description" content="Automatyczny runner i bezprzewodowa synchronizacja zrzutów ekranu oraz multimediów z telefonów Android na macOS." />
+    <meta name="twitter:image" content="https://droid-sync.7u.pl/droid-sync.png" />
+
     <title>droid-sync // Android Screenshot & Media Runner</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <style>
-      :root {
-        --bg-dark: #090d16;
-        --card-bg: rgba(15, 23, 42, 0.75);
-        --accent-cyan: #22d3ee;
-        --accent-emerald: #10b981;
-        --accent-amber: #f59e0b;
-        --accent-rose: #f43f5e;
-      }
-      * {
-        box-sizing: border-box;
-        margin: 0;
-        padding: 0;
-        outline: none;
-      }
-      *:focus {
-        outline: none;
-      }
-      body {
-        font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-        background-color: var(--bg-dark);
-        color: #f8fafc;
-        min-height: 100vh;
-        overflow-x: hidden;
-      }
-      /* Custom focus styles (Rule 6.3) */
-      input:focus, button:focus {
-        box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.4);
-      }
-    </style>
+
   </head>
   <body>
     <div id="app"></div>
