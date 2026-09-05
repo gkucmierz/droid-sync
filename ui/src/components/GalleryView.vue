@@ -10,8 +10,12 @@ import {
   HardDrive,
   Search,
   X,
-  Sparkles
+  Sparkles,
+  Smartphone,
+  Camera,
+  RotateCw
 } from 'lucide-vue-next';
+import { watch } from 'vue';
 
 const props = defineProps({
   screenshots: { type: Array, default: () => [] },
@@ -24,11 +28,44 @@ const { currentLang, t } = useI18n();
 
 const searchQuery = ref('');
 const selectedImage = ref(null);
+const activeFilter = ref('all'); // 'all' | 'screenshot' | 'camera'
+const rotationDegrees = ref(0);
+
+watch(selectedImage, () => {
+  rotationDegrees.value = 0;
+});
+
+const rotateImage = () => {
+  rotationDegrees.value = (rotationDegrees.value + 90) % 360;
+};
+
+const getItemType = (img) => {
+  if (img?.type) return img.type;
+  return /screenshot|screencap/i.test(img?.filename || '') ? 'screenshot' : 'camera';
+};
+
+const counts = computed(() => {
+  let screenshots = 0;
+  let camera = 0;
+  for (const img of props.screenshots) {
+    if (getItemType(img) === 'screenshot') screenshots++;
+    else camera++;
+  }
+  return {
+    all: props.screenshots.length,
+    screenshots,
+    camera
+  };
+});
 
 const filteredScreenshots = computed(() => {
-  if (!searchQuery.value.trim()) return props.screenshots;
+  let list = props.screenshots;
+  if (activeFilter.value !== 'all') {
+    list = list.filter(s => getItemType(s) === activeFilter.value);
+  }
+  if (!searchQuery.value.trim()) return list;
   const q = searchQuery.value.toLowerCase().trim();
-  return props.screenshots.filter(s => s.filename.toLowerCase().includes(q));
+  return list.filter(s => s.filename.toLowerCase().includes(q));
 });
 
 const formatSize = (bytes) => {
@@ -57,7 +94,67 @@ const getFullUrl = (relativeUrl) => {
 };
 
 const copyImage = (img) => {
-  emit('copy-clipboard', img.url);
+  emit('copy-clipboard', img.url, rotationDegrees.value);
+};
+
+const downloadImage = async (img) => {
+  const fullUrl = getFullUrl(img.url);
+  if (rotationDegrees.value % 360 === 0) {
+    const a = document.createElement('a');
+    a.href = fullUrl;
+    a.download = img.filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    return;
+  }
+
+  try {
+    const res = await fetch(fullUrl);
+    const blob = await res.blob();
+    const objUrl = URL.createObjectURL(blob);
+    const rotBlob = await new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => {
+        URL.revokeObjectURL(objUrl);
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        const deg = ((rotationDegrees.value % 360) + 360) % 360;
+        const rad = (deg * Math.PI) / 180;
+        const is90or270 = deg === 90 || deg === 270;
+
+        canvas.width = is90or270 ? image.naturalHeight : image.naturalWidth;
+        canvas.height = is90or270 ? image.naturalWidth : image.naturalHeight;
+
+        ctx.translate(canvas.width / 2, canvas.height / 2);
+        ctx.rotate(rad);
+        ctx.drawImage(image, -image.naturalWidth / 2, -image.naturalHeight / 2);
+
+        canvas.toBlob((b) => {
+          if (b) resolve(b);
+          else reject(new Error('Canvas export failed'));
+        }, 'image/png');
+      };
+      image.onerror = (e) => {
+        URL.revokeObjectURL(objUrl);
+        reject(e);
+      };
+      image.src = objUrl;
+    });
+
+    const rotUrl = URL.createObjectURL(rotBlob);
+    const a = document.createElement('a');
+    a.href = rotUrl;
+    const base = img.filename.replace(/\.[^.]+$/, '');
+    a.download = `${base}_rot${rotationDegrees.value}.png`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(rotUrl), 10000);
+  } catch (err) {
+    console.error('[Download Rotated Error]:', err);
+    window.open(fullUrl, '_blank');
+  }
 };
 
 // Universal ESC dismissal for image preview (Rule 6.1)
@@ -89,6 +186,39 @@ onUnmounted(() => {
         <span class="count-badge font-mono">{{ t.screenshotsCount(screenshots.length) }}</span>
       </div>
 
+      <!-- Filter tabs -->
+      <div class="tabs-group">
+        <button 
+          class="tab-btn" 
+          :class="{ active: activeFilter === 'all' }" 
+          @click="activeFilter = 'all'"
+          type="button"
+        >
+          <span>{{ t.filterAll }}</span>
+          <span class="tab-count font-mono">({{ counts.all }})</span>
+        </button>
+        <button 
+          class="tab-btn" 
+          :class="{ active: activeFilter === 'screenshot' }" 
+          @click="activeFilter = 'screenshot'"
+          type="button"
+        >
+          <Smartphone :size="13" />
+          <span>{{ t.filterScreenshots }}</span>
+          <span class="tab-count font-mono">({{ counts.screenshots }})</span>
+        </button>
+        <button 
+          class="tab-btn" 
+          :class="{ active: activeFilter === 'camera' }" 
+          @click="activeFilter = 'camera'"
+          type="button"
+        >
+          <Camera :size="13" />
+          <span>{{ t.filterCamera }}</span>
+          <span class="tab-count font-mono">({{ counts.camera }})</span>
+        </button>
+      </div>
+
       <!-- Search filter -->
       <div class="search-box">
         <Search :size="15" class="search-icon" />
@@ -113,6 +243,9 @@ onUnmounted(() => {
       >
         <!-- Thumbnail Wrap -->
         <div class="thumb-wrap" @click="selectedImage = img">
+          <span class="type-pill" :class="getItemType(img)">
+            {{ getItemType(img) === 'screenshot' ? t.badgeScreenshot : t.badgeCamera }}
+          </span>
           <img :src="getFullUrl(img.url)" :alt="img.filename" class="thumb-img" loading="lazy" />
           <div class="thumb-overlay">
             <button class="overlay-action-btn" @click.stop="selectedImage = img" type="button">
@@ -162,15 +295,20 @@ onUnmounted(() => {
       <div class="preview-modal glass-panel" @click.stop>
         <div class="preview-header">
           <span class="preview-filename font-mono">{{ selectedImage.filename }}</span>
-          <div style="display: flex; gap: 8px;">
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <button class="header-action-btn" @click="rotateImage" type="button">
+              <RotateCw :size="15" />
+              <span>{{ t.modalRotate }}</span>
+              <span v-if="rotationDegrees" class="rot-badge font-mono">{{ rotationDegrees }}°</span>
+            </button>
             <button class="header-action-btn" @click="copyImage(selectedImage)" type="button">
               <Copy :size="15" />
               <span>{{ t.modalCopy }}</span>
             </button>
-            <a :href="getFullUrl(selectedImage.url)" :download="selectedImage.filename" class="header-action-btn">
+            <button class="header-action-btn" @click="downloadImage(selectedImage)" type="button">
               <Download :size="15" />
               <span>{{ t.modalDownload }}</span>
-            </a>
+            </button>
             <button class="close-btn" @click="selectedImage = null" type="button" aria-label="Zamknij">
               <X :size="18" :stroke-width="2.2" />
             </button>
@@ -178,7 +316,12 @@ onUnmounted(() => {
         </div>
 
         <div class="preview-img-wrap">
-          <img :src="getFullUrl(selectedImage.url)" class="preview-img" />
+          <img 
+            :src="getFullUrl(selectedImage.url)" 
+            class="preview-img" 
+            :class="{ 'is-rotated-90': rotationDegrees % 180 !== 0 }"
+            :style="{ transform: `rotate(${rotationDegrees}deg)` }"
+          />
         </div>
       </div>
     </div>
@@ -225,6 +368,57 @@ onUnmounted(() => {
   background: rgba(34, 211, 238, 0.12);
   color: #22d3ee;
   border: 1px solid rgba(34, 211, 238, 0.3);
+}
+
+/* Tabs Group */
+.tabs-group {
+  display: inline-flex;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+[data-theme="light"] .tabs-group {
+  background: rgba(15, 23, 42, 0.05);
+  border-color: rgba(15, 23, 42, 0.12);
+}
+
+.tab-btn {
+  background: transparent;
+  border: none;
+  padding: 6px 13px;
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tab-btn.active {
+  background: rgba(34, 211, 238, 0.2);
+  color: #22d3ee;
+}
+
+[data-theme="light"] .tab-btn.active {
+  background: rgba(2, 132, 199, 0.15);
+  color: #0284c7;
+}
+
+.tab-btn:hover:not(.active) {
+  color: #e2e8f0;
+}
+
+[data-theme="light"] .tab-btn:hover:not(.active) {
+  color: #0f172a;
+}
+
+.tab-count {
+  font-size: 0.7rem;
+  opacity: 0.75;
 }
 
 .search-box {
@@ -309,6 +503,34 @@ onUnmounted(() => {
 
 .thumb-wrap:hover .thumb-img {
   transform: scale(1.03);
+}
+
+/* Type Badge Pill */
+.type-pill {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  z-index: 2;
+  pointer-events: none;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.type-pill.screenshot {
+  background: rgba(14, 165, 233, 0.4);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.5);
+}
+
+.type-pill.camera {
+  background: rgba(168, 85, 247, 0.4);
+  color: #e9d5ff;
+  border: 1px solid rgba(192, 132, 252, 0.5);
 }
 
 .thumb-overlay {
@@ -527,5 +749,20 @@ onUnmounted(() => {
   max-height: 75vh;
   object-fit: contain;
   border-radius: 8px;
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.preview-img.is-rotated-90 {
+  max-width: 72vh;
+  max-height: 72vw;
+}
+
+.rot-badge {
+  font-size: 0.68rem;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(34, 211, 238, 0.2);
+  color: #22d3ee;
+  border: 1px solid rgba(34, 211, 238, 0.4);
 }
 </style>

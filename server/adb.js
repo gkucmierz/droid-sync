@@ -203,7 +203,8 @@ export const getDeviceWifiIp = async (serial) => {
  * Lists screenshot files on Android device across candidate directories
  */
 export const listPhoneScreenshots = async (serial, directories = ['/sdcard/Pictures/Screenshots', '/sdcard/DCIM/Screenshots']) => {
-  const screenshots = [];
+  const media = [];
+  const seenFiles = new Set();
 
   for (const dir of directories) {
     // List directory with details
@@ -211,19 +212,24 @@ export const listPhoneScreenshots = async (serial, directories = ['/sdcard/Pictu
     if (res.stdout && !res.stdout.includes('No such file')) {
       const names = res.stdout.split('\n').map(n => n.trim()).filter(Boolean);
       for (const name of names) {
-        if (/\.(png|jpg|jpeg|webp)$/i.test(name)) {
-          screenshots.push({
+        if (/\.(png|jpg|jpeg|webp)$/i.test(name) && !seenFiles.has(name)) {
+          seenFiles.add(name);
+          const isScreenshot = /screenshot|screencap/i.test(name) || /screenshot/i.test(dir);
+          media.push({
             filename: name,
             remotePath: `${dir}/${name}`,
-            dir
+            dir,
+            type: isScreenshot ? 'screenshot' : 'camera'
           });
         }
       }
     }
   }
 
-  return screenshots;
+  return media;
 };
+
+export const listPhoneMedia = listPhoneScreenshots;
 
 /**
  * Pulls a file from Android to the local macOS filesystem

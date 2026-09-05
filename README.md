@@ -3,6 +3,7 @@
 [![Gitea](https://img.shields.io/badge/Gitea-Repository-blue?logo=gitea)](https://gitea.7u.pl/gkucmierz/droid-sync)
 [![GitHub](https://img.shields.io/badge/GitHub-Mirror-black?logo=github)](https://github.com/gkucmierz/droid-sync)
 [![Web UI](https://img.shields.io/badge/Web%20UI-droid--sync.7u.pl-22d3ee)](https://droid-sync.7u.pl)
+[![Tech Blog](https://img.shields.io/badge/Tech%20Blog-tech.7u.pl-purple?logo=vitepress)](https://tech.7u.pl/posts/droid-sync-android-macos)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Automatyczny konsolowy runner oraz interfejs webowy (Vue 3 / Vite) do bezobsługowej synchronizacji zrzutów ekranu i multimediów z telefonów z systemem Android na komputer macOS (domyślnie: `~/Documents/AndroidScreenshots/`), działający po kablu USB lub lokalnym Wi-Fi (ADB over TCP/IP).
@@ -10,6 +11,7 @@ Automatyczny konsolowy runner oraz interfejs webowy (Vue 3 / Vite) do bezobsług
 * **Główne repozytorium (Gitea)**: [https://gitea.7u.pl/gkucmierz/droid-sync](https://gitea.7u.pl/gkucmierz/droid-sync)
 * **Mirror (GitHub)**: [https://github.com/gkucmierz/droid-sync](https://github.com/gkucmierz/droid-sync)
 * **Instancja produkcyjna Web UI**: [https://droid-sync.7u.pl](https://droid-sync.7u.pl)
+* **Artykuł & Historia projektu (Tech Blog)**: [https://tech.7u.pl/posts/droid-sync-android-macos](https://tech.7u.pl/posts/droid-sync-android-macos)
 
 ---
 

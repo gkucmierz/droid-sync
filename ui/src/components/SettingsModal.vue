@@ -13,14 +13,21 @@ import {
   Zap,
   ChevronDown,
   ChevronUp,
-  AlertCircle
+  AlertCircle,
+  Smartphone,
+  Camera
 } from 'lucide-vue-next';
 
 const props = defineProps({
   isOpen: { type: Boolean, default: false },
   currentDir: { type: String, default: '~/Documents/AndroidScreenshots' },
+  cameraDir: { type: String, default: '~/Documents/AndroidPhotos' },
   pollIntervalMs: { type: Number, default: 2500 },
   autoDelete: { type: Boolean, default: false },
+  autoDeleteScreenshots: { type: Boolean, default: false },
+  autoDeleteCamera: { type: Boolean, default: false },
+  syncScreenshots: { type: Boolean, default: true },
+  syncCamera: { type: Boolean, default: true },
   device: { type: Object, default: null },
   telemetry: { type: Object, default: null }
 });
@@ -30,8 +37,12 @@ const emit = defineEmits(['close', 'save', 'enable-wireless', 'connect-wifi', 'a
 const { currentLang, t } = useI18n();
 
 const localDir = ref(props.currentDir);
+const localCameraDir = ref(props.cameraDir);
 const localInterval = ref(props.pollIntervalMs / 1000);
-const localAutoDelete = ref(props.autoDelete);
+const localAutoDeleteScreenshots = ref(props.autoDeleteScreenshots);
+const localAutoDeleteCamera = ref(props.autoDeleteCamera);
+const localSyncScreenshots = ref(props.syncScreenshots);
+const localSyncCamera = ref(props.syncCamera);
 const wifiIp = ref('');
 const wifiPort = ref(5555);
 const isAutoConnecting = ref(false);
@@ -40,8 +51,12 @@ const showManualWireless = ref(false);
 watch(() => [props.isOpen, props.telemetry], () => {
   if (props.isOpen) {
     localDir.value = props.currentDir;
+    localCameraDir.value = props.cameraDir || '~/Documents/AndroidPhotos';
     localInterval.value = props.pollIntervalMs / 1000;
-    localAutoDelete.value = props.autoDelete;
+    localAutoDeleteScreenshots.value = props.autoDeleteScreenshots ?? props.autoDelete ?? false;
+    localAutoDeleteCamera.value = props.autoDeleteCamera ?? false;
+    localSyncScreenshots.value = props.syncScreenshots;
+    localSyncCamera.value = props.syncCamera;
     if (props.telemetry?.wifiIp) {
       wifiIp.value = props.telemetry.wifiIp;
     }
@@ -51,8 +66,13 @@ watch(() => [props.isOpen, props.telemetry], () => {
 const handleSave = () => {
   emit('save', {
     destinationDir: localDir.value,
+    cameraDestinationDir: localCameraDir.value,
     pollIntervalMs: Math.max(1000, localInterval.value * 1000),
-    autoDeleteFromPhone: localAutoDelete.value
+    autoDeleteScreenshots: localAutoDeleteScreenshots.value,
+    autoDeleteCamera: localAutoDeleteCamera.value,
+    autoDeleteFromPhone: localAutoDeleteScreenshots.value,
+    syncScreenshots: localSyncScreenshots.value,
+    syncCamera: localSyncCamera.value
   });
   emit('close');
 };
@@ -107,7 +127,7 @@ onUnmounted(() => {
       </div>
 
       <div class="modal-body">
-        <!-- 1. Destination Folder -->
+        <!-- 1. Screenshots Destination Folder -->
         <div class="form-group">
           <label class="form-label">
             <Folder :size="15" style="color: #f59e0b;" />
@@ -122,7 +142,22 @@ onUnmounted(() => {
           <span class="form-hint">{{ t.destDirHint }}</span>
         </div>
 
-        <!-- 2. Poll Interval -->
+        <!-- 2. Camera Photos Destination Folder -->
+        <div class="form-group">
+          <label class="form-label">
+            <Folder :size="15" style="color: #c084fc;" />
+            <span>{{ t.destCameraDirLabel }}</span>
+          </label>
+          <input 
+            v-model="localCameraDir" 
+            type="text" 
+            class="form-input font-mono" 
+            placeholder="~/Documents/AndroidPhotos"
+          />
+          <span class="form-hint">{{ t.destCameraDirHint }}</span>
+        </div>
+
+        <!-- 3. Poll Interval -->
         <div class="form-group">
           <label class="form-label">
             <Clock :size="15" style="color: #22d3ee;" />
@@ -143,22 +178,85 @@ onUnmounted(() => {
           <span class="form-hint">{{ t.intervalHint }}</span>
         </div>
 
-        <!-- 3. Auto Delete Toggle (LoL Style Switch) -->
+        <!-- 4. Sync Screenshots Toggle -->
         <div class="toggle-row-group">
           <div class="toggle-left">
-            <label class="toggle-title-row" for="auto-delete-switch">
-              <Trash2 :size="16" style="color: #ef4444;" />
-              <span class="toggle-title">{{ t.autoDeleteLabel }}</span>
+            <label class="toggle-title-row" for="sync-screenshots-switch">
+              <Smartphone :size="16" style="color: #22d3ee;" />
+              <span class="toggle-title">{{ t.syncScreenshotsLabel }}</span>
             </label>
-            <span class="form-hint">{{ t.autoDeleteHint }}</span>
+            <span class="form-hint">{{ t.syncScreenshotsHint }}</span>
           </div>
 
-          <label class="switch-label" for="auto-delete-switch">
+          <label class="switch-label" for="sync-screenshots-switch">
             <input 
-              id="auto-delete-switch"
-              v-model="localAutoDelete" 
+              id="sync-screenshots-switch"
+              v-model="localSyncScreenshots" 
               type="checkbox" 
               class="switch-input" 
+            />
+            <div class="switch-slider"></div>
+          </label>
+        </div>
+
+        <!-- 5. Sync Camera Photos Toggle -->
+        <div class="toggle-row-group">
+          <div class="toggle-left">
+            <label class="toggle-title-row" for="sync-camera-switch">
+              <Camera :size="16" style="color: #c084fc;" />
+              <span class="toggle-title">{{ t.syncCameraLabel }}</span>
+            </label>
+            <span class="form-hint">{{ t.syncCameraHint }}</span>
+          </div>
+
+          <label class="switch-label" for="sync-camera-switch">
+            <input 
+              id="sync-camera-switch"
+              v-model="localSyncCamera" 
+              type="checkbox" 
+              class="switch-input" 
+            />
+            <div class="switch-slider"></div>
+          </label>
+        </div>
+
+        <!-- 6. Auto-Delete Screenshots Toggle -->
+        <div class="toggle-row-group">
+          <div class="toggle-left">
+            <label class="toggle-title-row" for="auto-delete-screenshots-switch">
+              <Trash2 :size="16" style="color: #f87171;" />
+              <span class="toggle-title">{{ t.autoDeleteScreenshotsLabel }}</span>
+            </label>
+            <span class="form-hint">{{ t.autoDeleteScreenshotsHint }}</span>
+          </div>
+
+          <label class="switch-label" for="auto-delete-screenshots-switch">
+            <input 
+              id="auto-delete-screenshots-switch"
+              v-model="localAutoDeleteScreenshots" 
+              type="checkbox" 
+              class="switch-input" 
+            />
+            <div class="switch-slider"></div>
+          </label>
+        </div>
+
+        <!-- 7. Auto-Delete Camera Photos Toggle (with prominent warning badge) -->
+        <div class="toggle-row-group warning-group">
+          <div class="toggle-left">
+            <label class="toggle-title-row" for="auto-delete-camera-switch">
+              <AlertCircle :size="16" style="color: #ef4444;" />
+              <span class="toggle-title">{{ t.autoDeleteCameraLabel }}</span>
+            </label>
+            <span class="form-hint warning-hint">{{ t.autoDeleteCameraHint }}</span>
+          </div>
+
+          <label class="switch-label" for="auto-delete-camera-switch">
+            <input 
+              id="auto-delete-camera-switch"
+              v-model="localAutoDeleteCamera" 
+              type="checkbox" 
+              class="switch-input switch-danger" 
             />
             <div class="switch-slider"></div>
           </label>
@@ -472,6 +570,26 @@ onUnmounted(() => {
   transform: translateX(20px);
   background: #22d3ee;
   box-shadow: 0 0 8px rgba(34, 211, 238, 0.6);
+}
+
+.switch-input.switch-danger:checked + .switch-slider {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.5);
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.3);
+}
+
+.switch-input.switch-danger:checked + .switch-slider::before {
+  background: #ef4444;
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.6);
+}
+
+.warning-group {
+  border-color: rgba(239, 68, 68, 0.25) !important;
+}
+
+.warning-hint {
+  color: #f87171 !important;
+  font-weight: 600;
 }
 
 .switch-input:focus + .switch-slider,

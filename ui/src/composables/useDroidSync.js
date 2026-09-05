@@ -9,8 +9,13 @@ export function useDroidSync() {
   const device = ref(null);
   const telemetry = ref(null);
   const destinationDir = ref('~/Documents/AndroidScreenshots');
+  const cameraDestinationDir = ref('~/Documents/AndroidPhotos');
   const pollIntervalMs = ref(2500);
   const autoDeleteFromPhone = ref(false);
+  const autoDeleteScreenshots = ref(false);
+  const autoDeleteCamera = ref(false);
+  const syncScreenshots = ref(true);
+  const syncCamera = ref(true);
   const lastSyncTime = ref(null);
   const screenshots = ref([]);
   const isSyncing = ref(false);
@@ -69,8 +74,13 @@ export function useDroidSync() {
         device.value = data.device;
         telemetry.value = data.telemetry;
         destinationDir.value = data.destinationDir;
+        cameraDestinationDir.value = data.cameraDestinationDir || '~/Documents/AndroidPhotos';
         pollIntervalMs.value = data.pollIntervalMs;
         autoDeleteFromPhone.value = data.autoDeleteFromPhone;
+        autoDeleteScreenshots.value = Boolean(data.autoDeleteScreenshots);
+        autoDeleteCamera.value = Boolean(data.autoDeleteCamera);
+        if (data.syncScreenshots !== undefined) syncScreenshots.value = data.syncScreenshots;
+        if (data.syncCamera !== undefined) syncCamera.value = data.syncCamera;
         lastSyncTime.value = data.lastSyncTime;
 
         if (wasDisconnected) {
@@ -169,8 +179,13 @@ export function useDroidSync() {
       const data = await res.json();
       if (data.success) {
         destinationDir.value = data.config.destinationDir;
+        if (data.config.cameraDestinationDir !== undefined) cameraDestinationDir.value = data.config.cameraDestinationDir;
         pollIntervalMs.value = data.config.pollIntervalMs;
         autoDeleteFromPhone.value = data.config.autoDeleteFromPhone;
+        if (data.config.autoDeleteScreenshots !== undefined) autoDeleteScreenshots.value = data.config.autoDeleteScreenshots;
+        if (data.config.autoDeleteCamera !== undefined) autoDeleteCamera.value = data.config.autoDeleteCamera;
+        if (data.config.syncScreenshots !== undefined) syncScreenshots.value = data.config.syncScreenshots;
+        if (data.config.syncCamera !== undefined) syncCamera.value = data.config.syncCamera;
         showFeedback(t.value.toastConfigSaved, 'success');
       }
     } catch (err) {
@@ -255,16 +270,52 @@ export function useDroidSync() {
     }
   };
 
-  // Copy Image to macOS Clipboard
-  const copyImageToClipboard = async (imgUrl) => {
+  // Copy Image to macOS Clipboard (Canvas PNG conversion & rotation support)
+  const copyImageToClipboard = async (imgUrl, rotation = 0) => {
     try {
       const resolvedUrl = imgUrl.startsWith('http') ? imgUrl : `${getApiBaseUrl()}${imgUrl}`;
       const res = await fetch(resolvedUrl);
-      const blob = await res.blob();
+      const originalBlob = await res.blob();
 
-      // Write PNG to clipboard
+      // The W3C Clipboard API strictly requires 'image/png' across browsers.
+      // We convert any format (JPEG, WebP, etc.) and apply rotation via in-memory Canvas.
+      let pngBlob;
+      if (originalBlob.type === 'image/png' && (rotation % 360 === 0)) {
+        pngBlob = originalBlob;
+      } else {
+        pngBlob = await new Promise((resolve, reject) => {
+          const img = new Image();
+          const objUrl = URL.createObjectURL(originalBlob);
+          img.onload = () => {
+            URL.revokeObjectURL(objUrl);
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const normalizedDeg = ((rotation % 360) + 360) % 360;
+            const rad = (normalizedDeg * Math.PI) / 180;
+            const is90or270 = normalizedDeg === 90 || normalizedDeg === 270;
+
+            canvas.width = is90or270 ? img.naturalHeight : img.naturalWidth;
+            canvas.height = is90or270 ? img.naturalWidth : img.naturalHeight;
+
+            ctx.translate(canvas.width / 2, canvas.height / 2);
+            ctx.rotate(rad);
+            ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
+
+            canvas.toBlob((blob) => {
+              if (blob) resolve(blob);
+              else reject(new Error('Canvas conversion failed'));
+            }, 'image/png');
+          };
+          img.onerror = (e) => {
+            URL.revokeObjectURL(objUrl);
+            reject(e);
+          };
+          img.src = objUrl;
+        });
+      }
+
       await navigator.clipboard.write([
-        new ClipboardItem({ [blob.type]: blob })
+        new ClipboardItem({ 'image/png': pngBlob })
       ]);
       showFeedback(t.value.toastClipboardSuccess, 'success');
     } catch (err) {
@@ -291,6 +342,11 @@ export function useDroidSync() {
             device.value = data.device;
             telemetry.value = data.telemetry;
             destinationDir.value = data.destinationDir;
+            if (data.cameraDestinationDir !== undefined) cameraDestinationDir.value = data.cameraDestinationDir;
+            if (data.autoDeleteScreenshots !== undefined) autoDeleteScreenshots.value = data.autoDeleteScreenshots;
+            if (data.autoDeleteCamera !== undefined) autoDeleteCamera.value = data.autoDeleteCamera;
+            if (data.syncScreenshots !== undefined) syncScreenshots.value = data.syncScreenshots;
+            if (data.syncCamera !== undefined) syncCamera.value = data.syncCamera;
             lastSyncTime.value = data.lastSyncTime;
             screenshots.value = data.screenshots || [];
           } else if (type === 'device-status') {
@@ -304,7 +360,12 @@ export function useDroidSync() {
             fetchStatus();
           } else if (type === 'config-updated') {
             destinationDir.value = data.config.destinationDir;
+            if (data.config.cameraDestinationDir !== undefined) cameraDestinationDir.value = data.config.cameraDestinationDir;
             pollIntervalMs.value = data.config.pollIntervalMs;
+            if (data.config.autoDeleteScreenshots !== undefined) autoDeleteScreenshots.value = data.config.autoDeleteScreenshots;
+            if (data.config.autoDeleteCamera !== undefined) autoDeleteCamera.value = data.config.autoDeleteCamera;
+            if (data.config.syncScreenshots !== undefined) syncScreenshots.value = data.config.syncScreenshots;
+            if (data.config.syncCamera !== undefined) syncCamera.value = data.config.syncCamera;
           }
         } catch (e) {
           console.error('[WS Parse Error]:', e);
@@ -361,8 +422,13 @@ export function useDroidSync() {
     device,
     telemetry,
     destinationDir,
+    cameraDestinationDir,
     pollIntervalMs,
     autoDeleteFromPhone,
+    autoDeleteScreenshots,
+    autoDeleteCamera,
+    syncScreenshots,
+    syncCamera,
     lastSyncTime,
     screenshots,
     isSyncing,

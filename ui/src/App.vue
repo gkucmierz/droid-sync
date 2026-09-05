@@ -30,8 +30,13 @@ const {
   device,
   telemetry,
   destinationDir,
+  cameraDestinationDir,
   pollIntervalMs,
   autoDeleteFromPhone,
+  autoDeleteScreenshots,
+  autoDeleteCamera,
+  syncScreenshots,
+  syncCamera,
   lastSyncTime,
   screenshots,
   isSyncing,
@@ -207,8 +212,13 @@ const closeSettings = () => {
     <SettingsModal 
       :is-open="isSettingsOpen"
       :current-dir="destinationDir"
+      :camera-dir="cameraDestinationDir"
       :poll-interval-ms="pollIntervalMs"
       :auto-delete="autoDeleteFromPhone"
+      :auto-delete-screenshots="autoDeleteScreenshots"
+      :auto-delete-camera="autoDeleteCamera"
+      :sync-screenshots="syncScreenshots"
+      :sync-camera="syncCamera"
       :device="device"
       :telemetry="telemetry"
       @close="closeSettings"
@@ -338,6 +348,9 @@ const closeSettings = () => {
 
 .lang-switch {
   display: inline-flex;
+  align-items: stretch;
+  height: 36px;
+  box-sizing: border-box;
   background: rgba(15, 23, 42, 0.7);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 8px;
@@ -347,13 +360,18 @@ const closeSettings = () => {
 .lang-switch button {
   background: transparent;
   border: none;
-  padding: 5px 12px;
+  padding: 0 14px;
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   color: #64748b;
   font-family: 'JetBrains Mono', monospace;
   font-size: 0.75rem;
   font-weight: 700;
   cursor: pointer;
   transition: 0.2s ease;
+  outline: none !important;
 }
 
 .lang-switch button.active {
@@ -420,8 +438,10 @@ const closeSettings = () => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 12px;
-  border-radius: 20px;
+  padding: 0 12px;
+  height: 36px;
+  box-sizing: border-box;
+  border-radius: 8px;
   font-family: 'JetBrains Mono', monospace;
   font-size: 0.72rem;
   font-weight: 700;
