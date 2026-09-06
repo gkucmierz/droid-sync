@@ -1,164 +1,166 @@
 # 📱 droid-sync // Android Screenshot & Media Runner
 
+> **Language / Język:** **English** | [Polski](README_PL.md)
+
 [![Gitea](https://img.shields.io/badge/Gitea-Repository-blue?logo=gitea)](https://gitea.7u.pl/gkucmierz/droid-sync)
 [![GitHub](https://img.shields.io/badge/GitHub-Mirror-black?logo=github)](https://github.com/gkucmierz/droid-sync)
 [![Web UI](https://img.shields.io/badge/Web%20UI-droid--sync.7u.pl-22d3ee)](https://droid-sync.7u.pl)
 [![Tech Blog](https://img.shields.io/badge/Tech%20Blog-tech.7u.pl-purple?logo=vitepress)](https://tech.7u.pl/posts/droid-sync-android-macos)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Automatyczny konsolowy runner oraz interfejs webowy (Vue 3 / Vite) do bezobsługowej synchronizacji zrzutów ekranu i multimediów z telefonów z systemem Android na komputer macOS (domyślnie: `~/Documents/Droid Sync/`), działający po kablu USB lub lokalnym Wi-Fi (ADB over TCP/IP).
+Automated console runner and web interface (Vue 3 / Vite) for zero-touch synchronization of screenshots and camera media from Android devices to macOS (default: `~/Documents/Droid Sync/`), operating seamlessly via USB cable or local Wi-Fi (ADB over TCP/IP).
 
-* **Główne repozytorium (Gitea)**: [https://gitea.7u.pl/gkucmierz/droid-sync](https://gitea.7u.pl/gkucmierz/droid-sync)
+* **Main Repository (Gitea)**: [https://gitea.7u.pl/gkucmierz/droid-sync](https://gitea.7u.pl/gkucmierz/droid-sync)
 * **Mirror (GitHub)**: [https://github.com/gkucmierz/droid-sync](https://github.com/gkucmierz/droid-sync)
-* **Instancja produkcyjna Web UI**: [https://droid-sync.7u.pl](https://droid-sync.7u.pl)
-* **Artykuł & Historia projektu (Tech Blog)**: [https://tech.7u.pl/posts/droid-sync-android-macos](https://tech.7u.pl/posts/droid-sync-android-macos)
+* **Production Web UI**: [https://droid-sync.7u.pl](https://droid-sync.7u.pl)
+* **Article & Project Story (Tech Blog)**: [https://tech.7u.pl/posts/droid-sync-android-macos](https://tech.7u.pl/posts/droid-sync-android-macos)
 
 ---
 
-## 🎯 Architektura & Deterministyczne Porty (`dport`)
+## 🎯 Architecture & Deterministic Ports (`dport`)
 
-Zgodnie ze standardem ekosystemu `7u.pl`:
-* **Serwer / Runner ADB (`droid-sync-server`)**: Port **`40880`** (`dport calc droid-sync-server`)
-  * Lekki demon Node.js (ES Modules), bezpośrednio wywołujący binarkę `adb`.
-  * Działa w tle, sprawdza telefon co ~2.5 sekundy, automatycznie pobiera nowe screeny i zdjęcia na dysk Maca.
-  * Zapisuje pobrane pliki bez pytania przeglądarki o żadne zgody (100% natywny dostęp do systemu plików).
-  * Obsługuje zdalny zrzut ekranu w locie (`adb exec-out screencap -p`).
-  * Bezstratna rotacja zdjęć w locie (`sips`) z zachowaniem 100% jakości i metadanych EXIF.
-  * Selektywne usuwanie plików z telefonu przez ADB z odświeżaniem Android MediaScanner.
-* **Interfejs Webowy (`droid-sync`)**: Port **`49278`** (`dport calc droid-sync`)
-  * Aplikacja Vue 3 + Vite w stylistyce dark cyber / glassmorphism (wsparcie trybu Dark i Light).
-  * Podgląd statusu telefonu (poziom baterii, interaktywny modal telemetrii baterii, specyfikacja systemu Android, model, typ połączenia USB / Wi-Fi).
-  * Przyciski szybkiej akcji: **Zrób zrzut (Remote Snap)**, **Synchronizuj teraz**, **Otwórz w Finderze**, **Szybkie Wi-Fi**, **Ustawienia**.
-  * Dynamiczny pasek postępu synchronizacji na żywo (Sync Progress Card).
-  * Inspektor metadanych EXIF dla zdjęć aparatu (aparat, obiektyw, czas naświetlania, ISO, przesłona, wymiary oraz współrzędne GPS z linkiem do Google Maps).
-  * Przeglądarka z opcją bezstratnego obracania zdjęć (`sips`) i bezpośredniego zapisu na dysku Maca.
-  * Wyszukiwanie z dynamicznym podświetlaniem pasujących fragmentów nazw plików (Search Match Highlighting).
-  * Nowy panel Ustawień z 2 zakładkami (**Katalogi zapisu** i **Synchronizacja & ADB**) oraz bezpośrednim routingiem z karty telefonu.
-  * Dedykowany, spójny wizualnie modal potwierdzenia usuwania (ConfirmModal) z obsługą klawisza ESC.
-  * Galeria zsynchronizowanych multimediów z opcją kopiowania obrazka wprost do schowka macOS (`Copy to Clipboard`) i selektywnego usuwania z pamięci telefonu.
-  * Ikony PWA ze strefami bezpieczeństwa (safe-zone maskable icons), idealnie dopasowane do kafelków macOS i Androida.
+Following the `7u.pl` ecosystem conventions:
+* **Server / ADB Runner (`droid-sync-server`)**: Port **`40880`** (`dport calc droid-sync-server`)
+  * Lightweight Node.js daemon (ES Modules) that directly drives the `adb` binary.
+  * Runs in the background, polls the connected phone every ~2.5s, and automatically pulls newly taken screenshots and camera photos to macOS storage.
+  * Writes synced media directly without browser file permission prompts (100% native filesystem access).
+  * On-demand remote screenshots (`adb exec-out screencap -p`).
+  * Lossless in-flight image rotation (`sips`) preserving 100% original quality and EXIF metadata.
+  * Selective media deletion from phone storage via ADB with Android MediaScanner cache invalidation.
+* **Web UI (`droid-sync`)**: Port **`49278`** (`dport calc droid-sync`)
+  * Vue 3 + Vite application styled with a dark cyber / glassmorphism aesthetic (supporting both Dark and Light modes).
+  * Real-time phone status monitor (battery level, interactive battery telemetry modal, Android OS specifications, model, connection type USB / Wi-Fi).
+  * Quick-action buttons: **Remote Snap**, **Sync Now**, **Open in Finder**, **Quick Wi-Fi**, **Settings**.
+  * Dynamic live sync progress indicator (Sync Progress Card).
+  * Built-in EXIF metadata inspector for camera photos (camera body, lens, exposure time, ISO, aperture, dimensions, and GPS coordinates with direct Google Maps link).
+  * Media viewer with lossless image rotation (`sips`) and direct write-back to Mac storage.
+  * Live search with matched substring highlighting.
+  * Two-tab Settings dialog (**Destination Directories** and **Sync & ADB Engine**) with direct deep-linking from the phone status card.
+  * Dedicated, cohesive confirmation dialog (ConfirmModal) with universal ESC key dismissal.
+  * Synced media gallery with native macOS clipboard image copy (`Copy to Clipboard`) and selective deletion from phone storage.
+  * PWA icons with safe-zone maskable padding, tailored for macOS Dock tiles and Android home screens.
 
 ---
 
-## 📂 Struktura katalogów na Macu (Parent Directory Architecture)
+## 📂 macOS Directory Structure (Parent Directory Architecture)
 
-Pliki multimedialne są organizowane w przejrzysty, nadrzędny katalog główny na Macu:
+All synced media is neatly organized under a central parent folder on your Mac:
 
 ```text
 ~/Documents/Droid Sync/
-├── sync-history-screenshots.jsonl    # Historia synchronizacji zrzutów ekranu
-├── sync-history-photos.jsonl         # Historia synchronizacji zdjęć z aparatu
-├── screenshots/                      # 100% czysty katalog wyłącznie z plikami zrzutów
+├── sync-history-screenshots.jsonl    # Screenshot synchronization history ledger
+├── sync-history-photos.jsonl         # Camera photo synchronization history ledger
+├── screenshots/                      # 100% pure media folder containing only screenshots
 │   ├── Screenshot_20260906-020915.png
 │   └── ...
-└── photos/                           # 100% czysty katalog wyłącznie ze zdjęciami aparatu
+└── photos/                           # 100% pure media folder containing only camera photos
     ├── PXL_20260903_101159904.jpg
     └── ...
 ```
 
-* **Czyste foldery multimediów**: Wewnątrz `screenshots/` oraz `photos/` znajdują się wyłącznie Twoje zdjęcia i zrzuty (żadne pliki techniczne nie zanieczyszczają folderów z mediami).
-* **Jawna historia (`hideJsonlFiles: false`)**: Domyślnie pliki historii synchronizacji są widoczne bezpośrednio w folderze nadrzędnym `~/Documents/Droid Sync/`. Zaawansowany użytkownik może w każdej chwili otworzyć plik, skasować pojedynczy wpis lub usunąć plik w Finderze, co serwer natychmiast wykrywa i automatycznie od nowa synchronizuje brakujące multimedia.
-* **Ukrywanie plików**: Jeśli wolisz ukryć pliki historii, włącz opcję `"hideJsonlFiles": true` w ustawieniach — serwer automatycznie przemianuje je na ukryte pliki z kropką (`.sync-history-*.jsonl`).
+* **Clean Media Directories**: Inside `screenshots/` and `photos/`, you will find exclusively your images (no technical files or lockfiles pollute your media folders).
+* **Transparent Sync Ledger (`hideJsonlFiles: false`)**: By default, JSONL history ledgers are visible directly inside `~/Documents/Droid Sync/`. Power users can open, inspect, or delete entries manually in Finder; the daemon automatically detects changes and re-synchronizes missing items immediately.
+* **Hidden File Mode**: If you prefer a cleaner root view, toggle `"hideJsonlFiles": true` in Settings — the daemon will automatically prefix ledger files with a dot (`.sync-history-*.jsonl`).
 
 ---
 
-## 🛠️ Instrukcja przygotowania telefonu z Androidem
+## 🛠️ Android Device Preparation Guide
 
-Aby komputer Mac mógł komunikować się z telefonem przez protokół ADB, musisz jednorazowo włączyć **Opcje programisty** i **Debugowanie USB**.
+To enable macOS to communicate with your phone via ADB, you need to enable **Developer Options** and **USB Debugging** once.
 
-### Krok 1: Włączenie Opcji Programisty (Developer Options)
-1. Wejdź na telefonie w **Ustawienia** (*Settings*).
-2. Zjedź na sam dół i wybierz **Informacje o telefonie** (*About phone*) $\rightarrow$ **Informacje o oprogramowaniu** (*Software information*).
-3. Odszukaj pole **Numer kompilacji** (*Build number*).
-4. Kliknij w **Numer kompilacji 7 razy z rzędu**.
-5. Telefon poprosi o podanie kodu blokady ekranu (PIN lub wzór) i wyświetli napis: *"Jesteś teraz programistą!"*.
+### Step 1: Enable Developer Options
+1. Open **Settings** on your phone.
+2. Scroll to the bottom and select **About phone** $\rightarrow$ **Software information**.
+3. Locate the **Build number** entry.
+4. Tap **Build number 7 times** in rapid succession.
+5. Enter your phone lock PIN or pattern when prompted. A toast message will appear: *"You are now a developer!"*.
 
-### Krok 2: Włączenie Debugowania USB (USB Debugging)
-1. Wróć do głównego menu **Ustawień**.
-2. Na samym dole pojawi się nowa zakładka: **Opcje programisty** (*Developer options*).
-3. Wejdź w nią i włącz przełącznik: **Debugowanie USB** (*USB debugging*).
-4. *(Opcjonalnie dla Wi-Fi)*: Jeśli chcesz łączyć się bez kabla, włącz też **Bezprzewodowe debugowanie** (*Wireless debugging*).
+### Step 2: Enable USB Debugging
+1. Return to the main **Settings** menu.
+2. At the very bottom, open the newly revealed **Developer options**.
+3. Toggle on **USB debugging**.
+4. *(Optional for wireless operation)*: If you want to connect untethered, also toggle on **Wireless debugging**.
 
-### Krok 3: Podłączenie do Maca i Autoryzacja Klucza RSA
-1. Podłącz telefon kablem USB do Maca (upewnij się, że kabel przesyła dane).
-2. **Odblokuj ekran telefonu**.
-3. Na ekranie telefonu pojawi się okno dialogowe:
-   > *"Zezwalać na debugowanie USB z tego komputera?"* (Fingerprint klucza RSA).
-4. Zaznacz pole: **"Zawsze zezwalaj z tego komputera"** i kliknij **Zezwól**.
-5. W terminalu Maca możesz sprawdzić połączenie:
+### Step 3: Connect to Mac & Authorize RSA Key
+1. Connect the phone to your Mac using a USB data cable.
+2. **Unlock your phone's screen**.
+3. A dialog prompt will appear on your phone:
+   > *"Allow USB debugging from this computer?"* (RSA key fingerprint).
+4. Check **"Always allow from this computer"** and tap **Allow**.
+5. In your Mac's terminal, verify the connection:
    ```bash
    adb devices -l
    ```
-   Powinieneś zobaczyć swój telefon ze statusem `device` (np. `R58M... device`).
+   You should see your device listed with status `device` (e.g., `R58M... device`).
 
 ---
 
-## 📶 Przełączenie na Wi-Fi (ADB over TCP/IP)
+## 📶 Switching to Wi-Fi (ADB over TCP/IP)
 
-Nie musisz trzymać telefonu na kablu! `droid-sync` wspiera **automatyczne przełączenie 1-klik**:
-1. Podłącz telefon kablem USB na chwilę.
-2. Otwórz **Ustawienia** w aplikacji i kliknij **"✨ Połącz przez Wi-Fi (1-klik)"**.
-   * Serwer automatycznie wykryje lokalny adres IP telefonu w sieci WLAN (`ip addr show wlan0`), przełączy port ADB TCP/IP na `5555` i nawiąże połączenie.
-3. Odłącz kabel USB – telefon jest w pełni zsynchronizowany bezprzewodowo!
+Untether your phone! `droid-sync` provides **1-Click Wireless Handshake**:
+1. Connect your phone via USB cable briefly.
+2. Open **Settings** in the web app and click **"✨ Connect via Wi-Fi (1-Click)"**.
+   * The server automatically queries the phone's WLAN IP (`ip addr show wlan0`), switches the ADB daemon to TCP/IP port `5555`, and connects.
+3. Disconnect the USB cable – your phone is now fully synced untethered over local Wi-Fi!
 
-*(Dla zaawansowanych dostępny jest także tryb ręczny z wpisaniem własnego IP).*
+*(Manual IP entry is also available in Settings for custom network configurations).*
 
 ---
 
 ## 🔄 Dual Git Push (Gitea + GitHub)
 
-Projekt jest utrzymywany w modelu podwójnego mirrorowania. Jeśli pracujesz nad kodem lokalnie, skonfiguruj pojedyncze polecenie `git push`, aby wypychało commity jednocześnie do instancji Gitea oraz GitHub:
+This project is mirrored across both Gitea and GitHub. When developing locally, configure a dual-target push remote so a single `git push` updates both remotes simultaneously:
 
 ```bash
-# Sklonuj z Gitea lub zainicjalizuj:
+# Clone from Gitea or initialize:
 git remote add origin git@gitea.7u.pl:gkucmierz/droid-sync.git
 
-# Skonfiguruj podwójny cel push:
+# Configure dual push targets:
 git remote set-url --add --push origin git@gitea.7u.pl:gkucmierz/droid-sync.git
 git remote set-url --add --push origin git@github.com:gkucmierz/droid-sync.git
 
-# Teraz jedno polecenie aktualizuje oba serwery:
+# One command now updates both remotes:
 git push -u origin main
 ```
 
 ---
 
-## 🚀 Uruchomienie
+## 🚀 Getting Started
 
-### Szybki start (z katalogu głównego):
+### Quick Start (from the project root):
 
-1. **Instalacja wszystkich zależności:**
+1. **Install all dependencies:**
    ```bash
    npm install
    ```
 
-2. **Uruchomienie wszystkiego na raz (Server + UI równolegle):**
+2. **Run everything concurrently (Server + Web UI in parallel):**
    ```bash
    npm run dev
    ```
-   *Podobnie jak w lolu, odpala jednocześnie serwer runnera (w kolorze magenta) oraz interfejs webowy (w kolorze cyan).*
+   *Launches both the ADB runner daemon (in magenta) and the Vite development server (in cyan).*
 
-3. **Uruchomienie SAMEGO serwera (np. gdy korzystasz z UI na `droid-sync.7u.pl`):**
+3. **Run ONLY the background daemon (e.g. when using the hosted UI at `droid-sync.7u.pl`):**
    ```bash
    npm run server
    ```
-   *Odpala lekki demon ADB na `http://127.0.0.1:40880`, gotowy do przyjmowania poleceń z webowej instancji aplikacji.*
+   *Starts the lightweight ADB daemon on `http://127.0.0.1:40880`, ready to receive commands from the hosted web client.*
 
-4. **Uruchomienie samego UI:**
+4. **Run UI only:**
    ```bash
    npm run ui
    ```
 
 ---
 
-## ⚙️ Dwuwarstwowa Konfiguracja (`config.default.json` vs `config.json`)
+## ⚙️ Two-Tier Configuration (`config.default.json` vs `config.json`)
 
-`droid-sync` stosuje bezpieczną dla gita hierarchię konfiguracyjną:
-1. **`server/config.default.json`** – kanoniczny, śledzony w repozytorium plik zawierający bezpieczne ustawienia domyślne.
-2. **`server/config.json`** – lokalny plik zignorowany w `.gitignore`, zawierający indywidualne ustawienia użytkownika o wyższym priorytecie.
-Każda modyfikacja zapisana w panelu *Ustawienia* w aplikacji trafia wyłącznie do `config.json`, dzięki czemu lokalna konfiguracja nie zanieczyszcza statusu Gita!
+`droid-sync` employs a git-safe configuration hierarchy:
+1. **`server/config.default.json`** – Canonical, version-controlled file containing safe baseline defaults.
+2. **`server/config.json`** – Local override file ignored by `.gitignore`, taking precedence over defaults.
+Any modifications saved from the in-app *Settings* panel are written exclusively to `config.json`, keeping your git tree pristine!
 
-Przykładowa zawartość `server/config.default.json`:
+Example `server/config.default.json`:
 
 ```json
 {
@@ -186,11 +188,11 @@ Przykładowa zawartość `server/config.default.json`:
 }
 ```
 
-* `destinationDir`: Główny nadrzędny folder na Twoim Macu (symbol `~` jest automatycznie rozwijany).
-* `screenshotsPath`: Ścieżka podfolderu dla screenshotów (względna do folderu głównego lub bezwzględna).
-* `photosPath`: Ścieżka podfolderu dla zdjęć z aparatu.
-* `hideJsonlFiles`: Gdy `false`, pliki `sync-history-*.jsonl` są widoczne w Finderze (łatwe zarządzanie). Gdy `true`, są plikami ukrytymi (`.sync-history-*.jsonl`).
-* `syncScreenshots` / `syncCamera`: Niezależne przełączniki włączające synchronizację danej kategorii multimediów.
-* `autoDeleteScreenshots` / `autoDeleteCamera`: Gdy ustawione na `true`, pliki danej kategorii po pomyślnym pobraniu na Maca są usuwane z telefonu, oszczędzając pamięć urządzenia.
-* `pollIntervalMs`: Częstotliwość sprawdzania telefonu w milisekundach (domyślnie 2500ms = 2.5s).
-* `notifyOnMac`: Systemowe powiadomienia macOS (`display notification`) po pobraniu nowych zrzutów i zdjęć.
+* `destinationDir`: Central parent directory on your Mac (the `~` home shorthand is automatically resolved).
+* `screenshotsPath`: Subdirectory path for screenshots (relative to `destinationDir` or absolute).
+* `photosPath`: Subdirectory path for camera photos.
+* `hideJsonlFiles`: When `false`, `sync-history-*.jsonl` files remain visible in Finder for easy maintenance. When `true`, they are written with a leading dot (`.sync-history-*.jsonl`).
+* `syncScreenshots` / `syncCamera`: Independent toggles to enable/disable syncing for each media category.
+* `autoDeleteScreenshots` / `autoDeleteCamera`: When enabled (`true`), media files are automatically removed from phone storage after a verified download to save phone space.
+* `pollIntervalMs`: Device polling frequency in milliseconds (default: 2500ms = 2.5s).
+* `notifyOnMac`: Native macOS desktop notifications (`display notification`) triggered upon pulling new media.
