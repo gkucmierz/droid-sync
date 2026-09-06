@@ -1,6 +1,6 @@
 {
   "name": "droid-sync-server",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "ADB runner and screenshot synchronization daemon for Android to macOS",
   "type": "module",
   "main": "server.js",

@@ -4,7 +4,9 @@ import { WebSocketServer } from 'ws';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import readline from 'node:readline';
 import { exec } from 'node:child_process';
+import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -14,22 +16,25 @@ import {
   pullFileFromPhone,
   captureRemoteScreenshot,
   deleteRemotePhoneFile,
+  deletePhoneMediaByName,
   enableTcpipMode,
   connectWifiAdb,
   disconnectWifiAdb,
   getDeviceWifiIp,
   ADB_BIN
 } from './adb.js';
+import { getExifData } from './exif.js';
 
+const execAsync = promisify(exec);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Deterministic Port from dport calc droid-sync-server
 const PORT = process.env.PORT || 40880;
 
-// Config path and history store
-const CONFIG_FILE = path.join(__dirname, 'config.json');
-const HISTORY_FILE = path.join(__dirname, 'sync-history.json');
+// Config paths: config.default.json (tracked in git) and config.json (user local overrides, gitignored)
+const DEFAULT_CONFIG_FILE = path.join(__dirname, 'config.default.json');
+const USER_CONFIG_FILE = path.join(__dirname, 'config.json');
 
 // Helper to expand tilde path (~/Documents -> /Users/...)
 const resolveHomeDir = (filepath) => {
@@ -40,10 +45,11 @@ const resolveHomeDir = (filepath) => {
   return path.resolve(filepath);
 };
 
-// Load configuration
+// Load configuration with priority: built-in defaults < config.default.json < config.json (user overrides)
 let config = {
-  destinationDir: '~/Documents/AndroidScreenshots',
-  cameraDestinationDir: '~/Documents/AndroidPhotos',
+  destinationDir: '~/Documents/Droid Sync',
+  screenshotsPath: './screenshots',
+  photosPath: './photos',
   phoneScreenshotsDirs: [
     '/sdcard/Pictures/Screenshots',
     '/sdcard/DCIM/Screenshots'
@@ -52,6 +58,7 @@ let config = {
     '/sdcard/DCIM/Camera',
     '/sdcard/DCIM/100ANDRO'
   ],
+  hideJsonlFiles: false,
   syncScreenshots: true,
   syncCamera: true,
   pollIntervalMs: 2500,
@@ -63,49 +70,39 @@ let config = {
   notifyOnMac: true
 };
 
+// 1. Load canonical config.default.json if present
 try {
-  if (fs.existsSync(CONFIG_FILE)) {
-    const raw = fs.readFileSync(CONFIG_FILE, 'utf8');
-    config = { ...config, ...JSON.parse(raw) };
+  if (fs.existsSync(DEFAULT_CONFIG_FILE)) {
+    const defaultRaw = fs.readFileSync(DEFAULT_CONFIG_FILE, 'utf8');
+    config = { ...config, ...JSON.parse(defaultRaw) };
   }
 } catch (e) {
-  console.error('[Config Load Error]:', e.message);
+  console.error('[Default Config Load Error]:', e.message);
 }
 
-// Load sync history
-let syncHistory = {
-  lastSyncTime: null,
-  syncedFiles: []
-};
-
+// 2. Load and overlay user local config.json (gitignored) with highest priority
 try {
-  if (fs.existsSync(HISTORY_FILE)) {
-    const raw = fs.readFileSync(HISTORY_FILE, 'utf8');
-    syncHistory = { ...syncHistory, ...JSON.parse(raw) };
+  if (fs.existsSync(USER_CONFIG_FILE)) {
+    const userRaw = fs.readFileSync(USER_CONFIG_FILE, 'utf8');
+    config = { ...config, ...JSON.parse(userRaw) };
   }
 } catch (e) {
-  console.error('[History Load Error]:', e.message);
+  console.error('[User Config Load Error]:', e.message);
 }
-
-const saveSyncHistory = () => {
-  try {
-    fs.writeFileSync(HISTORY_FILE, JSON.stringify(syncHistory, null, 2), 'utf8');
-  } catch (err) {
-    console.error('[History Save Error]:', err.message);
-  }
-};
-
-const saveConfig = () => {
-  try {
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf8');
-  } catch (err) {
-    console.error('[Config Save Error]:', err.message);
-  }
-};
 
 // Ensure local destination directories exist
+const getParentDestinationDir = () => {
+  const resolved = resolveHomeDir(config.destinationDir || '~/Documents/Droid Sync');
+  if (!fs.existsSync(resolved)) {
+    fs.mkdirSync(resolved, { recursive: true });
+  }
+  return resolved;
+};
+
 const getLocalScreenshotsDir = () => {
-  const resolved = resolveHomeDir(config.destinationDir || '~/Documents/AndroidScreenshots');
+  const parent = getParentDestinationDir();
+  const rel = config.screenshotsPath || './screenshots';
+  const resolved = path.isAbsolute(rel) ? rel : path.resolve(parent, rel);
   if (!fs.existsSync(resolved)) {
     fs.mkdirSync(resolved, { recursive: true });
   }
@@ -113,7 +110,9 @@ const getLocalScreenshotsDir = () => {
 };
 
 const getLocalCameraDir = () => {
-  const resolved = resolveHomeDir(config.cameraDestinationDir || '~/Documents/AndroidPhotos');
+  const parent = getParentDestinationDir();
+  const rel = config.photosPath || config.cameraDestinationDir || './photos';
+  const resolved = path.isAbsolute(rel) ? rel : path.resolve(parent, rel);
   if (!fs.existsSync(resolved)) {
     fs.mkdirSync(resolved, { recursive: true });
   }
@@ -121,6 +120,199 @@ const getLocalCameraDir = () => {
 };
 
 const getLocalDestinationDir = getLocalScreenshotsDir;
+
+// ==========================================
+// PARENT DIRECTORY SYNC HISTORY ((.)sync-history-*.jsonl)
+// ==========================================
+const screenshotsHistory = {
+  lastSyncTime: null,
+  syncedFiles: new Set()
+};
+
+const cameraHistory = {
+  lastSyncTime: null,
+  syncedFiles: new Set()
+};
+
+const getHistoryFilePath = (type) => {
+  const parent = getParentDestinationDir();
+  const prefix = config.hideJsonlFiles ? '.' : '';
+  const suffix = type === 'camera' ? 'photos' : 'screenshots';
+  return path.join(parent, `${prefix}sync-history-${suffix}.jsonl`);
+};
+
+/**
+ * Loads JSONL history from the parent destination directory into an in-memory Set
+ */
+const loadFolderHistory = async (type, historyStore) => {
+  historyStore.syncedFiles.clear();
+  const historyFile = getHistoryFilePath(type);
+  if (!fs.existsSync(historyFile)) return;
+
+  try {
+    const fileStream = fs.createReadStream(historyFile, { encoding: 'utf8' });
+    const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
+    for await (const line of rl) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        const entry = JSON.parse(trimmed);
+        const name = typeof entry === 'string' ? entry : (entry.file || entry.filename);
+        if (name) {
+          historyStore.syncedFiles.add(name);
+          if (entry.ts) historyStore.lastSyncTime = entry.ts;
+        }
+      } catch {}
+    }
+  } catch (e) {
+    console.error(`[History Load Error for ${type}]:`, e.message);
+  }
+};
+
+/**
+ * Append a newly synced media item to the parent folder's sync-history JSONL (O(1) append-only)
+ */
+const recordSyncedFile = (filename, metadata = {}) => {
+  if (!filename) return;
+  const isCamera = metadata.type === 'camera';
+  const type = isCamera ? 'camera' : 'screenshot';
+  const targetHistory = isCamera ? cameraHistory : screenshotsHistory;
+
+  targetHistory.syncedFiles.add(filename);
+  targetHistory.lastSyncTime = new Date().toISOString();
+
+  try {
+    const historyFile = getHistoryFilePath(type);
+    const line = JSON.stringify({ file: filename, ts: targetHistory.lastSyncTime, ...metadata }) + '\n';
+    fs.appendFileSync(historyFile, line, 'utf8');
+  } catch (err) {
+    console.error(`[History Append Error for ${type}]:`, err.message);
+  }
+};
+
+/**
+ * Seamless auto-migration:
+ * 1. Renames between dot and non-dot files if hideJsonlFiles was toggled
+ * 2. Migrates subfolder .sync-history.jsonl into parent directory
+ * 3. Migrates legacy server/sync-history.json[l] if any
+ */
+const migrateHistoryFiles = async () => {
+  const parent = getParentDestinationDir();
+  const screenshotsDir = getLocalScreenshotsDir();
+  const cameraDir = getLocalCameraDir();
+
+  // 1. Rename between dot and non-dot versions if hideJsonlFiles setting doesn't match on-disk file
+  const activeScreenHist = getHistoryFilePath('screenshot');
+  const inactiveScreenHist = path.join(parent, config.hideJsonlFiles ? 'sync-history-screenshots.jsonl' : '.sync-history-screenshots.jsonl');
+  if (fs.existsSync(inactiveScreenHist) && !fs.existsSync(activeScreenHist)) {
+    try {
+      fs.renameSync(inactiveScreenHist, activeScreenHist);
+    } catch {}
+  }
+
+  const activeCamHist = getHistoryFilePath('camera');
+  const inactiveCamHist = path.join(parent, config.hideJsonlFiles ? 'sync-history-photos.jsonl' : '.sync-history-photos.jsonl');
+  if (fs.existsSync(inactiveCamHist) && !fs.existsSync(activeCamHist)) {
+    try {
+      fs.renameSync(inactiveCamHist, activeCamHist);
+    } catch {}
+  }
+
+  // 2. Migrate legacy subfolder .sync-history.jsonl files to parent directory
+  const subScreen = path.join(screenshotsDir, '.sync-history.jsonl');
+  if (fs.existsSync(subScreen)) {
+    try {
+      const content = fs.readFileSync(subScreen, 'utf8');
+      fs.appendFileSync(activeScreenHist, content, 'utf8');
+      fs.unlinkSync(subScreen);
+      console.log('[History Migration] Moved screenshots/.sync-history.jsonl -> parent folder');
+    } catch (e) {
+      console.error('[Migration Error subScreen]:', e.message);
+    }
+  }
+
+  const subCam = path.join(cameraDir, '.sync-history.jsonl');
+  if (fs.existsSync(subCam)) {
+    try {
+      const content = fs.readFileSync(subCam, 'utf8');
+      fs.appendFileSync(activeCamHist, content, 'utf8');
+      fs.unlinkSync(subCam);
+      console.log('[History Migration] Moved photos/.sync-history.jsonl -> parent folder');
+    } catch (e) {
+      console.error('[Migration Error subCam]:', e.message);
+    }
+  }
+
+  // 3. Migrate legacy server/sync-history.json[l]
+  const legacyJsonl = path.join(__dirname, 'sync-history.jsonl');
+  const legacyJson = path.join(__dirname, 'sync-history.json');
+  const filesToMigrate = [];
+
+  if (fs.existsSync(legacyJsonl)) {
+    try {
+      const fileStream = fs.createReadStream(legacyJsonl, { encoding: 'utf8' });
+      const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
+      for await (const line of rl) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+          const entry = JSON.parse(trimmed);
+          filesToMigrate.push(entry);
+        } catch {}
+      }
+      fs.unlinkSync(legacyJsonl);
+    } catch (e) {
+      console.error('[Legacy JSONL Migration Error]:', e.message);
+    }
+  } else if (fs.existsSync(legacyJson)) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(legacyJson, 'utf8'));
+      for (const f of raw.syncedFiles || []) {
+        filesToMigrate.push({ file: f, ts: raw.lastSyncTime });
+      }
+      fs.unlinkSync(legacyJson);
+    } catch (e) {
+      console.error('[Legacy JSON Migration Error]:', e.message);
+    }
+  }
+
+  if (filesToMigrate.length > 0) {
+    for (const entry of filesToMigrate) {
+      const name = typeof entry === 'string' ? entry : (entry.file || entry.filename);
+      if (!name) continue;
+      const isCamera = entry.type === 'camera' || (!entry.type && !/screenshot|screencap/i.test(name));
+      const type = isCamera ? 'camera' : 'screenshot';
+      const targetHistory = isCamera ? cameraHistory : screenshotsHistory;
+
+      if (!targetHistory.syncedFiles.has(name)) {
+        targetHistory.syncedFiles.add(name);
+        if (entry.ts) targetHistory.lastSyncTime = entry.ts;
+        try {
+          const histFile = getHistoryFilePath(type);
+          fs.appendFileSync(histFile, JSON.stringify({
+            file: name,
+            ts: entry.ts || new Date().toISOString(),
+            type: isCamera ? 'camera' : 'screenshot'
+          }) + '\n', 'utf8');
+        } catch {}
+      }
+    }
+    console.log(`[History Migration] Successfully migrated ${filesToMigrate.length} legacy root entries into parent history`);
+  }
+};
+
+// Initialize per-folder histories on startup
+await migrateHistoryFiles();
+await loadFolderHistory('screenshot', screenshotsHistory);
+await loadFolderHistory('camera', cameraHistory);
+
+const saveConfig = () => {
+  try {
+    fs.writeFileSync(USER_CONFIG_FILE, JSON.stringify(config, null, 2), 'utf8');
+  } catch (err) {
+    console.error('[Config Save Error]:', err.message);
+  }
+};
 
 // System notification on macOS
 const sendMacNotification = (title, message) => {
@@ -149,6 +341,8 @@ app.use(express.json());
 let currentDevice = null;
 let currentTelemetry = null;
 let isSyncing = false;
+let previousDeviceSerial = null;
+let previousDeviceAuthorized = false;
 
 // WebSocket clients
 const clients = new Set();
@@ -224,9 +418,15 @@ const performSync = async () => {
     }
 
     if (!devicesRes.success || devicesRes.devices.length === 0) {
+      const hadDevice = previousDeviceSerial !== null;
       currentDevice = null;
       currentTelemetry = null;
-      broadcast('device-disconnected', {});
+      previousDeviceSerial = null;
+      previousDeviceAuthorized = false;
+      if (hadDevice) {
+        console.log('[Device] Phone disconnected');
+        broadcast('device-disconnected', {});
+      }
       return { success: false, reason: 'no_device_connected' };
     }
 
@@ -234,12 +434,31 @@ const performSync = async () => {
     currentDevice = device;
 
     if (!device.isAuthorized) {
+      previousDeviceSerial = device.serial;
+      previousDeviceAuthorized = false;
       broadcast('device-unauthorized', { device });
       return { success: false, reason: 'device_unauthorized', device };
     }
 
+    const isReconnection = !previousDeviceSerial || 
+                           previousDeviceSerial !== device.serial || 
+                           !previousDeviceAuthorized;
+
+    previousDeviceSerial = device.serial;
+    previousDeviceAuthorized = true;
+
     // Refresh telemetry
     currentTelemetry = await getDeviceTelemetry(device.serial);
+
+    if (isReconnection) {
+      console.log(`[Device] Connection established / reconnected: ${device.serial} (${device.model})`);
+      broadcast('device-connected', {
+        device,
+        telemetry: currentTelemetry,
+        screenshots: getLocalScreenshotsList()
+      });
+    }
+
     broadcast('device-status', { device, telemetry: currentTelemetry });
 
     // Build candidate directories based on sync toggles
@@ -259,21 +478,54 @@ const performSync = async () => {
     const remoteList = await listPhoneScreenshots(device.serial, candidateDirs);
     const screenshotsDest = getLocalScreenshotsDir();
     const cameraDest = getLocalCameraDir();
-    const pulledNow = [];
 
-    const existingSynced = new Set(syncHistory.syncedFiles);
+    // Auto-detect if user deleted history file manually from Finder
+    const screenshotsHistFile = getHistoryFilePath('screenshot');
+    if (!fs.existsSync(screenshotsHistFile) && screenshotsHistory.syncedFiles.size > 0) {
+      console.log('[History] Detected manual removal of screenshots history, resetting in-memory cache');
+      screenshotsHistory.syncedFiles.clear();
+      screenshotsHistory.lastSyncTime = null;
+    }
 
+    const cameraHistFile = getHistoryFilePath('camera');
+    if (!fs.existsSync(cameraHistFile) && cameraHistory.syncedFiles.size > 0) {
+      console.log('[History] Detected manual removal of camera history, resetting in-memory cache');
+      cameraHistory.syncedFiles.clear();
+      cameraHistory.lastSyncTime = null;
+    }
+
+    // Filter candidate items that need to be pulled
+    const itemsToPull = [];
     for (const item of remoteList) {
       const isCamera = item.type === 'camera';
       const targetDest = isCamera ? cameraDest : screenshotsDest;
+      const targetHistory = isCamera ? cameraHistory : screenshotsHistory;
 
-      if (!existingSynced.has(item.filename) && !fs.existsSync(path.join(targetDest, item.filename))) {
-        console.log(`[Sync] Pulling new ${item.type || 'media'}: ${item.filename} -> ${targetDest}`);
+      if (!targetHistory.syncedFiles.has(item.filename) && !fs.existsSync(path.join(targetDest, item.filename))) {
+        itemsToPull.push(item);
+      }
+    }
+
+    const pulledNow = [];
+
+    if (itemsToPull.length > 0) {
+      broadcast('sync-started', {
+        total: itemsToPull.length,
+        files: itemsToPull.map(i => i.filename)
+      });
+
+      let lastGalleryBroadcast = Date.now();
+
+      for (let idx = 0; idx < itemsToPull.length; idx++) {
+        const item = itemsToPull[idx];
+        const isCamera = item.type === 'camera';
+        const targetDest = isCamera ? cameraDest : screenshotsDest;
+
+        console.log(`[Sync] (${idx + 1}/${itemsToPull.length}) Pulling ${item.type || 'media'}: ${item.filename} -> ${targetDest}`);
         const pullRes = await pullFileFromPhone(device.serial, item.remotePath, targetDest);
 
         if (pullRes.success) {
-          existingSynced.add(item.filename);
-          syncHistory.syncedFiles.push(item.filename);
+          recordSyncedFile(item.filename, { type: item.type });
           pulledNow.push(item.filename);
 
           const shouldDelete = (item.type === 'screenshot' && (config.autoDeleteScreenshots || config.autoDeleteFromPhone)) ||
@@ -283,13 +535,34 @@ const performSync = async () => {
             console.log(`[Sync] Auto-deleting ${item.type} from phone: ${item.remotePath}`);
             await deleteRemotePhoneFile(device.serial, item.remotePath);
           }
+
+          // Broadcast progress in real-time
+          broadcast('sync-progress', {
+            current: pulledNow.length,
+            total: itemsToPull.length,
+            percent: Math.round((pulledNow.length / itemsToPull.length) * 100),
+            currentFile: item.filename,
+            type: item.type
+          });
+
+          // Stream gallery updates every 1500ms or on the last file
+          const now = Date.now();
+          if (now - lastGalleryBroadcast > 1500 || idx === itemsToPull.length - 1) {
+            lastGalleryBroadcast = now;
+            broadcast('new-screenshots', {
+              count: pulledNow.length,
+              files: pulledNow,
+              all: getLocalScreenshotsList()
+            });
+          }
         }
       }
-    }
 
-    if (pulledNow.length > 0) {
-      syncHistory.lastSyncTime = new Date().toISOString();
-      saveSyncHistory();
+      broadcast('sync-completed', {
+        pulledCount: pulledNow.length,
+        totalScreenshots: remoteList.length,
+        all: getLocalScreenshotsList()
+      });
 
       const screenshotCount = pulledNow.filter(f => /screenshot|screencap/i.test(f)).length;
       const cameraCount = pulledNow.length - screenshotCount;
@@ -303,12 +576,6 @@ const performSync = async () => {
       }
 
       sendMacNotification('droid-sync', notifMsg);
-
-      broadcast('new-screenshots', {
-        count: pulledNow.length,
-        files: pulledNow,
-        all: getLocalScreenshotsList()
-      });
     }
 
     return {
@@ -336,16 +603,30 @@ app.get('/api/status', async (req, res) => {
   const device = devicesRes.devices?.find(d => d.isAuthorized) || devicesRes.devices?.[0] || null;
   currentDevice = device;
 
-  if (device && device.isAuthorized && !currentTelemetry) {
-    currentTelemetry = await getDeviceTelemetry(device.serial);
+  if (device && device.isAuthorized) {
+    if (!currentTelemetry || !currentTelemetry.battery || currentTelemetry.battery.level === null || req.query.fresh === 'true') {
+      currentTelemetry = await getDeviceTelemetry(device.serial);
+    }
+  } else {
+    currentTelemetry = null;
   }
+
+  const latestSyncTime = [screenshotsHistory.lastSyncTime, cameraHistory.lastSyncTime]
+    .filter(Boolean)
+    .sort()
+    .pop() || null;
+  const totalSynced = screenshotsHistory.syncedFiles.size + cameraHistory.syncedFiles.size;
 
   res.json({
     appName: 'droid-sync',
     adbBinary: ADB_BIN,
     serverPort: PORT,
     destinationDir: config.destinationDir,
-    cameraDestinationDir: config.cameraDestinationDir,
+    screenshotsPath: config.screenshotsPath,
+    photosPath: config.photosPath,
+    hideJsonlFiles: Boolean(config.hideJsonlFiles),
+    cameraDestinationDir: config.photosPath || config.cameraDestinationDir,
+    resolvedParentDir: getParentDestinationDir(),
     resolvedDestinationDir: getLocalScreenshotsDir(),
     resolvedCameraDestinationDir: getLocalCameraDir(),
     pollIntervalMs: config.pollIntervalMs,
@@ -354,11 +635,70 @@ app.get('/api/status', async (req, res) => {
     autoDeleteCamera: Boolean(config.autoDeleteCamera),
     syncScreenshots: config.syncScreenshots !== false,
     syncCamera: config.syncCamera !== false,
-    lastSyncTime: syncHistory.lastSyncTime,
-    totalSyncedCount: syncHistory.syncedFiles.length,
+    lastSyncTime: latestSyncTime,
+    totalSyncedCount: totalSynced,
     device,
     telemetry: currentTelemetry,
     allDevices: devicesRes.devices || []
+  });
+});
+
+// 1b. On-demand Telemetry Refresh
+app.post('/api/telemetry/refresh', async (req, res) => {
+  try {
+    const devicesRes = await getConnectedDevices();
+    const device = devicesRes.devices?.find(d => d.isAuthorized);
+
+    if (!device) {
+      currentDevice = null;
+      currentTelemetry = null;
+      return res.json({ success: false, error: 'no_authorized_device', telemetry: null });
+    }
+
+    currentDevice = device;
+    currentTelemetry = await getDeviceTelemetry(device.serial);
+    broadcast('device-status', { device, telemetry: currentTelemetry });
+
+    res.json({
+      success: true,
+      device,
+      telemetry: currentTelemetry
+    });
+  } catch (err) {
+    console.error('[Telemetry Refresh Error]:', err.message);
+    res.status(500).json({ success: false, error: err.message, telemetry: null });
+  }
+});
+
+// 1c. Reset sync history endpoint
+app.post('/api/history/reset', async (req, res) => {
+  const type = req.body?.type || 'all'; // 'screenshots' | 'camera' | 'all'
+
+  if (type === 'screenshots' || type === 'all') {
+    screenshotsHistory.syncedFiles.clear();
+    screenshotsHistory.lastSyncTime = null;
+    const f = getHistoryFilePath('screenshot');
+    if (fs.existsSync(f)) {
+      try { fs.unlinkSync(f); } catch {}
+    }
+  }
+
+  if (type === 'camera' || type === 'all') {
+    cameraHistory.syncedFiles.clear();
+    cameraHistory.lastSyncTime = null;
+    const f = getHistoryFilePath('camera');
+    if (fs.existsSync(f)) {
+      try { fs.unlinkSync(f); } catch {}
+    }
+  }
+
+  // Trigger sync in background immediately
+  performSync().catch(err => console.error('[Reset Sync Error]:', err));
+
+  res.json({
+    success: true,
+    message: 'Sync history reset successfully',
+    type
   });
 });
 
@@ -406,6 +746,115 @@ app.get('/api/screenshots/:filename', (req, res) => {
   res.sendFile(filePath);
 });
 
+// 3b. Rotate Screenshot or Camera Photo In-Place (Lossless for PNG, 100% Quality for JPG, preserves EXIF)
+app.post('/api/screenshots/rotate', async (req, res) => {
+  try {
+    const { filename, rotation } = req.body;
+    if (!filename) {
+      return res.status(400).json({ success: false, error: 'Missing filename' });
+    }
+
+    const safeName = path.basename(filename);
+    const rotationDeg = Number(rotation) || 90;
+    const normalizedDeg = ((rotationDeg % 360) + 360) % 360;
+
+    if (normalizedDeg === 0) {
+      return res.json({ success: true, message: 'No rotation needed' });
+    }
+
+    // Resolve file path across destinations
+    const screenshotsDir = getLocalScreenshotsDir();
+    const cameraDir = getLocalCameraDir();
+    let filePath = path.join(screenshotsDir, safeName);
+    if (!fs.existsSync(filePath)) {
+      filePath = path.join(cameraDir, safeName);
+    }
+
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ success: false, error: 'File not found' });
+    }
+
+    // Rotate using macOS sips: formatOptions 100 ensures max quality preservation and retains EXIF
+    const cmd = `sips -r ${normalizedDeg} -s formatOptions 100 "${filePath}"`;
+    await execAsync(cmd);
+
+    const stats = fs.statSync(filePath);
+    const updated = {
+      filename: safeName,
+      sizeBytes: stats.size,
+      mtime: stats.mtime.toISOString(),
+      url: `/api/screenshots/${encodeURIComponent(safeName)}`
+    };
+
+    broadcast('screenshot-updated', { image: updated });
+
+    res.json({
+      success: true,
+      image: updated
+    });
+  } catch (err) {
+    console.error('[Image Rotate Error]:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 3c. Get EXIF & Hardware Telemetry for a media file
+app.get('/api/screenshots/:filename/exif', async (req, res) => {
+  try {
+    const safeName = path.basename(req.params.filename);
+    const screenshotsDir = getLocalScreenshotsDir();
+    const cameraDir = getLocalCameraDir();
+
+    let filePath = path.join(screenshotsDir, safeName);
+    if (!fs.existsSync(filePath)) {
+      filePath = path.join(cameraDir, safeName);
+    }
+
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ success: false, error: 'File not found' });
+    }
+
+    const exif = await getExifData(filePath);
+    res.json({ success: true, exif });
+  } catch (err) {
+    console.error('[EXIF Query Error]:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 3d. Selective Delete of Media from Connected Android Device
+app.post('/api/phone/delete', async (req, res) => {
+  try {
+    const { filename } = req.body;
+    if (!filename) {
+      return res.status(400).json({ success: false, error: 'Missing filename' });
+    }
+
+    if (!currentDevice || !currentDevice.isAuthorized) {
+      return res.status(400).json({
+        success: false,
+        error: 'errNoUsbDevice'
+      });
+    }
+
+    const candidateDirs = [
+      ...(config.phoneScreenshotsDirs || ['/sdcard/Pictures/Screenshots', '/sdcard/DCIM/Screenshots']),
+      ...(config.phoneCameraDirs || ['/sdcard/DCIM/Camera'])
+    ];
+
+    const result = await deletePhoneMediaByName(currentDevice.serial, filename, candidateDirs);
+    if (result.success) {
+      console.log(`[Phone Delete] Deleted ${filename} from ${result.deletedPath}`);
+      res.json({ success: true, filename, deletedPath: result.deletedPath });
+    } else {
+      res.status(404).json({ success: false, error: result.error || 'File not found on device' });
+    }
+  } catch (err) {
+    console.error('[Phone Delete Error]:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // 4. Trigger manual sync
 app.post('/api/sync', async (req, res) => {
   const result = await performSync();
@@ -433,9 +882,7 @@ app.post('/api/snap', async (req, res) => {
     console.log(`[Snap] Triggering remote screencap for ${device.serial} -> ${filename}`);
     await captureRemoteScreenshot(device.serial, localFilePath);
 
-    syncHistory.syncedFiles.push(filename);
-    syncHistory.lastSyncTime = new Date().toISOString();
-    saveSyncHistory();
+    recordSyncedFile(filename, { type: 'screenshot', source: 'remote-snap' });
 
     sendMacNotification('droid-sync', `Wykonano zrzut ekranu: ${filename}`);
 
@@ -461,8 +908,15 @@ app.post('/api/snap', async (req, res) => {
 
 // 6. Open Destination Folder in macOS Finder
 app.post('/api/open-folder', (req, res) => {
-  const type = req.body?.type || 'screenshots';
-  const dest = type === 'camera' ? getLocalCameraDir() : getLocalScreenshotsDir();
+  const type = req.body?.type || 'parent';
+  let dest;
+  if (type === 'screenshots') {
+    dest = getLocalScreenshotsDir();
+  } else if (type === 'camera') {
+    dest = getLocalCameraDir();
+  } else {
+    dest = getParentDestinationDir();
+  }
   exec(`open "${dest}"`, (err) => {
     if (err) {
       return res.status(500).json({ success: false, error: err.message });
@@ -472,9 +926,12 @@ app.post('/api/open-folder', (req, res) => {
 });
 
 // 7. Update Configuration
-app.post('/api/config', (req, res) => {
+app.post('/api/config', async (req, res) => {
   const {
     destinationDir,
+    screenshotsPath,
+    photosPath,
+    hideJsonlFiles,
     cameraDestinationDir,
     pollIntervalMs,
     autoDeleteFromPhone,
@@ -488,7 +945,10 @@ app.post('/api/config', (req, res) => {
   } = req.body;
 
   if (destinationDir !== undefined) config.destinationDir = destinationDir;
-  if (cameraDestinationDir !== undefined) config.cameraDestinationDir = cameraDestinationDir;
+  if (screenshotsPath !== undefined) config.screenshotsPath = screenshotsPath;
+  if (photosPath !== undefined) config.photosPath = photosPath;
+  if (cameraDestinationDir !== undefined) config.photosPath = cameraDestinationDir;
+  if (hideJsonlFiles !== undefined) config.hideJsonlFiles = Boolean(hideJsonlFiles);
   if (pollIntervalMs !== undefined) config.pollIntervalMs = Math.max(1000, Number(pollIntervalMs));
   if (autoDeleteFromPhone !== undefined) config.autoDeleteFromPhone = Boolean(autoDeleteFromPhone);
   if (autoDeleteScreenshots !== undefined) config.autoDeleteScreenshots = Boolean(autoDeleteScreenshots);
@@ -500,8 +960,11 @@ app.post('/api/config', (req, res) => {
   if (syncCamera !== undefined) config.syncCamera = Boolean(syncCamera);
 
   saveConfig();
+  await migrateHistoryFiles();
   getLocalScreenshotsDir();
   getLocalCameraDir();
+  await loadFolderHistory('screenshot', screenshotsHistory);
+  await loadFolderHistory('camera', cameraHistory);
 
   broadcast('config-updated', { config });
   res.json({ success: true, config });
@@ -657,16 +1120,23 @@ const wss = new WebSocketServer({ server });
 wss.on('connection', (ws) => {
   clients.add(ws);
   // Send initial state
+  const latestSyncTime = [screenshotsHistory.lastSyncTime, cameraHistory.lastSyncTime]
+    .filter(Boolean)
+    .sort()
+    .pop() || null;
+  const totalSynced = screenshotsHistory.syncedFiles.size + cameraHistory.syncedFiles.size;
+
   ws.send(JSON.stringify({
     type: 'initial-state',
     data: {
       device: currentDevice,
       telemetry: currentTelemetry,
       destinationDir: config.destinationDir,
+      cameraDestinationDir: config.cameraDestinationDir,
       syncScreenshots: config.syncScreenshots !== false,
       syncCamera: config.syncCamera !== false,
-      lastSyncTime: syncHistory.lastSyncTime,
-      totalSyncedCount: syncHistory.syncedFiles.length,
+      lastSyncTime: latestSyncTime,
+      totalSyncedCount: totalSynced,
       screenshots: getLocalScreenshotsList()
     }
   }));

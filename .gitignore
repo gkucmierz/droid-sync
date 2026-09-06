@@ -8,7 +8,6 @@ dist/
 ui/dist/
 
 # Runtime local stores
-server/sync-history.json
 server/config.json
 
 # Logs & System files

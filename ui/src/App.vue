@@ -20,6 +20,8 @@ import { useTheme } from './composables/useTheme.js';
 import DeviceCard from './components/DeviceCard.vue';
 import GalleryView from './components/GalleryView.vue';
 import SettingsModal from './components/SettingsModal.vue';
+import BatteryModal from './components/BatteryModal.vue';
+import SystemModal from './components/SystemModal.vue';
 import RunnerOfflineCard from './components/RunnerOfflineCard.vue';
 
 const { currentLang, t, setLang } = useI18n();
@@ -30,6 +32,10 @@ const {
   device,
   telemetry,
   destinationDir,
+  screenshotsPath,
+  photosPath,
+  hideJsonlFiles,
+  resolvedParentDir,
   cameraDestinationDir,
   pollIntervalMs,
   autoDeleteFromPhone,
@@ -40,10 +46,19 @@ const {
   lastSyncTime,
   screenshots,
   isSyncing,
+  syncProgress,
   isSnapping,
+  isRefreshingTelemetry,
   actionMessage,
   messageType,
   getApiBaseUrl,
+  fetchStatus,
+  fetchScreenshots,
+  refreshTelemetry,
+  resetSyncHistory,
+  rotateImageOnDisk,
+  fetchExif,
+  deleteFileFromPhone,
   triggerSync,
   triggerRemoteSnap,
   openFolderInFinder,
@@ -56,13 +71,31 @@ const {
 } = useDroidSync();
 
 const isSettingsOpen = ref(false);
+const settingsActiveTab = ref('folders');
+const isBatteryModalOpen = ref(false);
+const isSystemModalOpen = ref(false);
 
-const openSettings = () => {
+const openSettings = (tab = 'folders') => {
+  settingsActiveTab.value = tab;
   isSettingsOpen.value = true;
 };
 
 const closeSettings = () => {
   isSettingsOpen.value = false;
+};
+
+const openBatteryModal = () => {
+  isBatteryModalOpen.value = true;
+  if (device.value && device.value.isAuthorized) {
+    refreshTelemetry();
+  }
+};
+
+const openSystemModal = () => {
+  isSystemModalOpen.value = true;
+  if (device.value && device.value.isAuthorized) {
+    refreshTelemetry();
+  }
 };
 </script>
 
@@ -92,7 +125,7 @@ const closeSettings = () => {
         <div>
           <div style="display: flex; align-items: center; gap: 8px;">
             <h1 class="app-title">droid-sync</h1>
-            <span class="app-version font-mono">v1.0.0</span>
+            <span class="app-version font-mono">v1.1.0</span>
           </div>
           <p class="app-subtitle">{{ t.appSubtitle }}</p>
         </div>
@@ -145,7 +178,28 @@ const closeSettings = () => {
         :telemetry="telemetry"
         :destination-dir="destinationDir"
         :last-sync-time="lastSyncTime"
+        @open-battery="openBatteryModal"
+        @open-system="openSystemModal"
+        @open-settings="openSettings"
       />
+
+      <!-- Live Sync Progress Banner -->
+      <div v-if="isSyncing || (syncProgress.total > 0 && syncProgress.percent < 100)" class="sync-progress-card glass-panel animate-fade-in">
+        <div class="sync-card-top">
+          <div class="sync-card-status">
+            <RefreshCw :size="16" class="animate-spin sync-spinner-icon" />
+            <span class="sync-title">{{ t.syncInProgress }}</span>
+            <span v-if="syncProgress.currentFile" class="sync-current-file font-mono">{{ syncProgress.currentFile }}</span>
+          </div>
+          <div class="sync-card-counter font-mono">
+            <span class="sync-numbers">{{ syncProgress.current }} / {{ syncProgress.total }}</span>
+            <span class="sync-pct">{{ syncProgress.percent }}%</span>
+          </div>
+        </div>
+        <div class="sync-progress-bar-wrap">
+          <div class="sync-progress-bar-fill" :style="{ width: `${syncProgress.percent}%` }"></div>
+        </div>
+      </div>
 
       <!-- Quick Action Toolbar -->
       <div class="actions-toolbar glass-panel">
@@ -185,7 +239,7 @@ const closeSettings = () => {
           <!-- 4. Wi-Fi Setup Quick Trigger -->
           <button 
             class="action-btn" 
-            @click="openSettings"
+            @click="openSettings('sync')"
             type="button"
           >
             <Wifi :size="16" />
@@ -194,7 +248,7 @@ const closeSettings = () => {
         </div>
 
         <!-- Settings Cog -->
-        <button class="settings-trigger-btn" @click="openSettings" type="button">
+        <button class="settings-trigger-btn" @click="openSettings('folders')" type="button">
           <Settings :size="18" />
           <span>{{ t.actionSettings }}</span>
         </button>
@@ -204,13 +258,24 @@ const closeSettings = () => {
       <GalleryView 
         :screenshots="screenshots"
         :api-base-url="getApiBaseUrl()"
+        :is-syncing="isSyncing"
+        :sync-progress="syncProgress"
+        :device="device"
         @copy-clipboard="copyImageToClipboard"
+        @rotate-disk="rotateImageOnDisk"
+        @fetch-exif="fetchExif"
+        @delete-phone="deleteFileFromPhone"
       />
     </main>
 
     <!-- Settings & Wireless Modal -->
     <SettingsModal 
       :is-open="isSettingsOpen"
+      :initial-tab="settingsActiveTab"
+      :parent-dir="destinationDir"
+      :screenshots-path="screenshotsPath"
+      :photos-path="photosPath"
+      :hide-jsonl-files="hideJsonlFiles"
       :current-dir="destinationDir"
       :camera-dir="cameraDestinationDir"
       :poll-interval-ms="pollIntervalMs"
@@ -226,6 +291,25 @@ const closeSettings = () => {
       @enable-wireless="enableWirelessAdb"
       @connect-wifi="connectWifi"
       @auto-connect-wireless="autoConnectWireless"
+      @reset-history="resetSyncHistory"
+    />
+
+    <!-- Battery Telemetry Modal -->
+    <BatteryModal 
+      :is-open="isBatteryModalOpen"
+      :battery="telemetry?.battery"
+      :is-refreshing="isRefreshingTelemetry"
+      @refresh="refreshTelemetry"
+      @close="isBatteryModalOpen = false"
+    />
+
+    <!-- System Details Modal -->
+    <SystemModal 
+      :is-open="isSystemModalOpen"
+      :system="telemetry?.system"
+      :is-refreshing="isRefreshingTelemetry"
+      @refresh="refreshTelemetry"
+      @close="isSystemModalOpen = false"
     />
   </div>
 </template>
@@ -299,6 +383,29 @@ const closeSettings = () => {
   gap: 16px;
 }
 
+/* Window Controls Overlay (macOS Desktop PWA Integration) */
+@media (display-mode: window-controls-overlay) {
+  .app-layout {
+    padding-top: 10px;
+  }
+
+  .app-header {
+    /* Leave comfortable room for macOS traffic lights on the left */
+    padding-left: max(24px, calc(env(titlebar-area-x, 0px) + 84px));
+    padding-right: max(24px, calc(100vw - env(titlebar-area-width, 100vw) + 16px));
+    -webkit-app-region: drag;
+    app-region: drag;
+  }
+
+  .app-header button,
+  .app-header .lang-switch,
+  .app-header .runner-indicator,
+  .app-header a {
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
+  }
+}
+
 .header-left {
   display: flex;
   align-items: center;
@@ -348,40 +455,50 @@ const closeSettings = () => {
 
 .lang-switch {
   display: inline-flex;
-  align-items: stretch;
+  align-items: center;
   height: 36px;
+  padding: 3px;
+  gap: 3px;
   box-sizing: border-box;
-  background: rgba(15, 23, 42, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 8px;
-  overflow: hidden;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 9px;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(8px);
 }
 
 .lang-switch button {
   background: transparent;
-  border: none;
-  padding: 0 14px;
+  border: 1px solid transparent;
+  padding: 0 10px;
   height: 100%;
+  border-radius: 6px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #64748b;
+  color: #94a3b8;
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.75rem;
+  font-size: 0.74rem;
   font-weight: 700;
+  letter-spacing: 0.04em;
   cursor: pointer;
-  transition: 0.2s ease;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   outline: none !important;
+  outline-offset: 0 !important;
+  box-shadow: none !important;
 }
 
 .lang-switch button.active {
-  background: #22d3ee;
-  color: #0f172a;
+  color: #22d3ee;
+  background: rgba(34, 211, 238, 0.18);
+  border-color: rgba(34, 211, 238, 0.45);
+  box-shadow: 0 0 12px rgba(34, 211, 238, 0.22), inset 0 1px 1px rgba(255, 255, 255, 0.15);
+  font-weight: 800;
 }
 
 .lang-switch button:hover:not(.active) {
-  color: #cbd5e1;
-  background: rgba(255, 255, 255, 0.05);
+  color: #f8fafc;
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .btn-theme-toggle {
@@ -461,6 +578,92 @@ const closeSettings = () => {
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+
+/* Live Sync Progress Card */
+.sync-progress-card {
+  padding: 14px 18px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid rgba(34, 211, 238, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 4px 20px rgba(34, 211, 238, 0.15);
+}
+
+.sync-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.sync-card-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sync-spinner-icon {
+  color: #22d3ee;
+}
+
+.sync-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.sync-current-file {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  max-width: 340px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 2px 6px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+}
+
+.sync-card-counter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sync-numbers {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #22d3ee;
+}
+
+.sync-pct {
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(34, 211, 238, 0.15);
+  color: #22d3ee;
+  border: 1px solid rgba(34, 211, 238, 0.3);
+}
+
+.sync-progress-bar-wrap {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.sync-progress-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #22d3ee, #a855f7);
+  transition: width 0.25s ease-out;
+  box-shadow: 0 0 10px rgba(34, 211, 238, 0.5);
 }
 
 /* Actions Toolbar */

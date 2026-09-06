@@ -102,48 +102,240 @@ export const getConnectedDevices = async () => {
   return { success: true, devices };
 };
 
+// In-memory cache for static hardware & OS specs (fetched once per connected device)
+const staticSystemCache = new Map();
+
 /**
- * Queries battery and OS telemetry for an authorized device
+ * Queries detailed battery and OS telemetry for an authorized device
  */
 export const getDeviceTelemetry = async (serial) => {
   if (!serial) return null;
 
   try {
-    const [modelRes, androidRes, batteryRes] = await Promise.all([
-      runAdb(['-s', serial, 'shell', 'getprop', 'ro.product.model']),
-      runAdb(['-s', serial, 'shell', 'getprop', 'ro.build.version.release']),
-      runAdb(['-s', serial, 'shell', 'dumpsys', 'battery'])
+    // 1. Fetch dynamic battery dumpsys and wifi IP
+    let [batteryRes, wifiIp] = await Promise.all([
+      runAdb(['-s', serial, 'shell', 'dumpsys', 'battery']),
+      getDeviceWifiIp(serial)
     ]);
 
-    let batteryLevel = null;
-    let isCharging = false;
-    let batteryStatus = 'Unknown';
-
-    if (batteryRes.stdout) {
-      const levelMatch = batteryRes.stdout.match(/level:\s*(\d+)/i);
-      const statusMatch = batteryRes.stdout.match(/status:\s*(\d+)/i);
-      const pluggedMatch = batteryRes.stdout.match(/AC powered:\s*true|USB powered:\s*true|Wireless powered:\s*true/i);
-
-      if (levelMatch) {
-        batteryLevel = parseInt(levelMatch[1], 10);
-      }
-      if (pluggedMatch || (statusMatch && statusMatch[1] === '2')) {
-        isCharging = true;
-        batteryStatus = 'Charging';
-      } else {
-        batteryStatus = 'Discharging';
+    // Retry once with a brief 350ms delay if dumpsys battery returned empty (common during USB enumeration)
+    if (!batteryRes.stdout || !/level:\s*\d+/i.test(batteryRes.stdout)) {
+      await new Promise(resolve => setTimeout(resolve, 350));
+      const retryRes = await runAdb(['-s', serial, 'shell', 'dumpsys', 'battery']);
+      if (retryRes.stdout && /level:\s*\d+/i.test(retryRes.stdout)) {
+        batteryRes = retryRes;
       }
     }
 
-    const wifiIp = await getDeviceWifiIp(serial);
+    let batteryLevel = null;
+    let isCharging = false;
+    let batteryStatus = 'Discharging';
+    let powerSource = 'Battery';
+    let voltageMv = null;
+    let temperatureC = null;
+    let healthCode = 1;
+    let healthText = 'Unknown';
+    let technology = 'Li-ion';
+    let maxChargingCurrentMa = null;
+    let cycleCount = null;
+
+    if (batteryRes.stdout && /level:\s*\d+/i.test(batteryRes.stdout)) {
+      const bText = batteryRes.stdout;
+      const levelMatch = bText.match(/level:\s*(\d+)/i);
+      const statusMatch = bText.match(/status:\s*(\d+)/i);
+      const healthMatch = bText.match(/health:\s*(\d+)/i);
+      const voltageMatch = bText.match(/voltage:\s*(\d+)/i);
+      const tempMatch = bText.match(/temperature:\s*(\d+)/i);
+      const techMatch = bText.match(/technology:\s*([^\r\n]+)/i);
+      const maxCurMatch = bText.match(/Max charging current:\s*(\d+)/i);
+      const cycleMatch = bText.match(/(?:mBatteryCycle|cycle_count|Cycle count):\s*(\d+)/i);
+
+      const acPlugged = /AC powered:\s*true/i.test(bText);
+      const usbPlugged = /USB powered:\s*true/i.test(bText);
+      const wirelessPlugged = /Wireless powered:\s*true/i.test(bText);
+
+      if (levelMatch) batteryLevel = parseInt(levelMatch[1], 10);
+      if (voltageMatch) voltageMv = parseInt(voltageMatch[1], 10);
+      if (tempMatch) temperatureC = parseFloat((parseInt(tempMatch[1], 10) / 10).toFixed(1));
+      if (techMatch) technology = techMatch[1].trim();
+      if (maxCurMatch) maxChargingCurrentMa = Math.round(parseInt(maxCurMatch[1], 10) / 1000);
+      if (cycleMatch) cycleCount = parseInt(cycleMatch[1], 10);
+
+      if (acPlugged) {
+        isCharging = true;
+        powerSource = 'AC';
+      } else if (usbPlugged) {
+        isCharging = true;
+        powerSource = 'USB';
+      } else if (wirelessPlugged) {
+        isCharging = true;
+        powerSource = 'Wireless';
+      } else if (statusMatch && statusMatch[1] === '2') {
+        isCharging = true;
+        powerSource = 'Charging';
+      }
+
+      if (statusMatch) {
+        const s = statusMatch[1];
+        if (s === '2') batteryStatus = 'Charging';
+        else if (s === '3') batteryStatus = 'Discharging';
+        else if (s === '4') batteryStatus = 'Not charging';
+        else if (s === '5') batteryStatus = 'Full';
+      }
+
+      if (healthMatch) {
+        healthCode = parseInt(healthMatch[1], 10);
+        const healthMap = {
+          1: 'Unknown',
+          2: 'Good',
+          3: 'Overheat',
+          4: 'Dead',
+          5: 'Over Voltage',
+          6: 'Unspecified Failure',
+          7: 'Cold'
+        };
+        healthText = healthMap[healthCode] || 'Unknown';
+      }
+    } else {
+      // Fallback directly to kernel sysfs (/sys/class/power_supply/battery or bms)
+      try {
+        const sysfsCmd = 'cat /sys/class/power_supply/battery/capacity 2>/dev/null || cat /sys/class/power_supply/bms/capacity 2>/dev/null; ' +
+                         'cat /sys/class/power_supply/battery/status 2>/dev/null || cat /sys/class/power_supply/bms/status 2>/dev/null; ' +
+                         'cat /sys/class/power_supply/battery/voltage_now 2>/dev/null || cat /sys/class/power_supply/bms/voltage_now 2>/dev/null; ' +
+                         'cat /sys/class/power_supply/battery/temp 2>/dev/null || cat /sys/class/power_supply/bms/temp 2>/dev/null';
+        const sysfsRes = await runAdb(['-s', serial, 'shell', sysfsCmd]);
+        if (sysfsRes.stdout) {
+          const lines = sysfsRes.stdout.split('\n').map(l => l.trim()).filter(Boolean);
+          if (lines[0] && /^\d+$/.test(lines[0])) {
+            batteryLevel = parseInt(lines[0], 10);
+          }
+          if (lines[1]) {
+            batteryStatus = lines[1];
+            isCharging = /charging/i.test(lines[1]);
+            powerSource = isCharging ? 'Charging' : 'Battery';
+          }
+          if (lines[2] && /^\d+$/.test(lines[2])) {
+            const rawV = parseInt(lines[2], 10);
+            voltageMv = rawV > 10000 ? Math.round(rawV / 1000) : rawV;
+          }
+          if (lines[3] && /^\d+$/.test(lines[3])) {
+            temperatureC = parseFloat((parseInt(lines[3], 10) / 10).toFixed(1));
+          }
+          healthText = 'Good';
+          healthCode = 2;
+        }
+      } catch (sysErr) {
+        console.error('[Sysfs Battery Fallback Error]:', sysErr.message);
+      }
+    }
+
+    // Try cycle count from sysfs if not in dumpsys battery
+    if (cycleCount === null) {
+      try {
+        const cycleRes = await runAdb([
+          '-s', serial, 'shell',
+          'cat /sys/class/power_supply/battery/cycle_count 2>/dev/null || cat /sys/class/power_supply/bms/cycle_count 2>/dev/null'
+        ]);
+        if (cycleRes.stdout && /^\d+$/.test(cycleRes.stdout.trim())) {
+          cycleCount = parseInt(cycleRes.stdout.trim(), 10);
+        }
+      } catch (e) {}
+    }
+
+    // 2. Fetch or reuse cached static system details
+    let staticSystem = staticSystemCache.get(serial);
+    if (!staticSystem) {
+      const [
+        modelRes,
+        brandRes,
+        androidRes,
+        sdkRes,
+        patchRes,
+        socRes,
+        abiRes,
+        kernelRes,
+        wmSizeRes,
+        wmDensityRes
+      ] = await Promise.all([
+        runAdb(['-s', serial, 'shell', 'getprop', 'ro.product.model']),
+        runAdb(['-s', serial, 'shell', 'getprop', 'ro.product.brand']),
+        runAdb(['-s', serial, 'shell', 'getprop', 'ro.build.version.release']),
+        runAdb(['-s', serial, 'shell', 'getprop', 'ro.build.version.sdk']),
+        runAdb(['-s', serial, 'shell', 'getprop', 'ro.build.version.security_patch']),
+        runAdb(['-s', serial, 'shell', 'getprop ro.soc.model 2>/dev/null || getprop ro.board.platform 2>/dev/null']),
+        runAdb(['-s', serial, 'shell', 'getprop', 'ro.product.cpu.abi']),
+        runAdb(['-s', serial, 'shell', 'uname -r']),
+        runAdb(['-s', serial, 'shell', 'wm size']),
+        runAdb(['-s', serial, 'shell', 'wm density'])
+      ]);
+
+      staticSystem = {
+        model: modelRes.stdout || 'Android Device',
+        brand: brandRes.stdout ? brandRes.stdout.charAt(0).toUpperCase() + brandRes.stdout.slice(1) : '',
+        androidVersion: androidRes.stdout || 'Unknown',
+        sdkLevel: sdkRes.stdout || '',
+        securityPatch: patchRes.stdout || '',
+        soc: socRes.stdout || '',
+        cpuAbi: abiRes.stdout || '',
+        kernel: kernelRes.stdout ? kernelRes.stdout.trim() : '',
+        screenResolution: wmSizeRes.stdout ? wmSizeRes.stdout.replace(/Physical size:\s*/i, '').trim() : '',
+        screenDensity: wmDensityRes.stdout ? wmDensityRes.stdout.replace(/Physical density:\s*/i, '').trim() : ''
+      };
+      staticSystemCache.set(serial, staticSystem);
+    }
+
+    // 3. Dynamic system metrics (uptime, storage)
+    let uptime = '';
+    let storage = { total: '', used: '', free: '', percent: '' };
+    try {
+      const [uptimeRes, dfRes] = await Promise.all([
+        runAdb(['-s', serial, 'shell', 'uptime']),
+        runAdb(['-s', serial, 'shell', 'df -h /data'])
+      ]);
+      if (uptimeRes.stdout) {
+        uptime = uptimeRes.stdout.trim().replace(/^[\s\d:]+\s+up\s+/, 'up ');
+      }
+      if (dfRes.stdout) {
+        const dfLines = dfRes.stdout.trim().split('\n');
+        if (dfLines.length >= 2) {
+          const cols = dfLines[dfLines.length - 1].trim().split(/\s+/);
+          if (cols.length >= 5) {
+            storage = {
+              total: cols[1],
+              used: cols[2],
+              free: cols[3],
+              percent: cols[4]
+            };
+          }
+        }
+      }
+    } catch (e) {}
 
     return {
-      model: modelRes.stdout || 'Android Device',
-      androidVersion: androidRes.stdout || 'Unknown',
+      model: staticSystem.model,
+      androidVersion: staticSystem.androidVersion,
       batteryLevel,
       isCharging,
       batteryStatus,
-      wifiIp
+      wifiIp,
+      battery: {
+        level: batteryLevel,
+        isCharging,
+        batteryStatus,
+        powerSource,
+        voltageMv,
+        temperatureC,
+        healthCode,
+        healthText,
+        cycleCount,
+        technology,
+        maxChargingCurrentMa
+      },
+      system: {
+        ...staticSystem,
+        uptime,
+        storage
+      }
     };
   } catch (err) {
     console.error(`[ADB Telemetry Error for ${serial}]:`, err);
@@ -332,3 +524,30 @@ export const disconnectWifiAdb = async (ip, port = 5555) => {
     output: res.stdout || res.stderr
   };
 };
+
+/**
+ * Deletes a specific media file by filename from the Android device
+ */
+export const deletePhoneMediaByName = async (serial, filename, candidateDirs = ['/sdcard/Pictures/Screenshots', '/sdcard/DCIM/Screenshots', '/sdcard/DCIM/Camera']) => {
+  if (!serial || !filename) return { success: false, error: 'Missing serial or filename' };
+  const safeName = path.basename(filename);
+
+  let deletedPath = null;
+  for (const dir of candidateDirs) {
+    const remotePath = `${dir}/${safeName}`;
+    const checkRes = await runAdb(['-s', serial, 'shell', `ls "${remotePath}" 2>/dev/null`]);
+    if (checkRes.stdout && checkRes.stdout.includes(safeName)) {
+      await runAdb(['-s', serial, 'shell', 'rm', '-f', `"${remotePath}"`]);
+      // Notify Android MediaScanner so phone gallery drops the thumbnail immediately
+      await runAdb(['-s', serial, 'shell', `am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "file://${remotePath}"`]);
+      deletedPath = remotePath;
+      break;
+    }
+  }
+
+  if (deletedPath) {
+    return { success: true, deletedPath, filename: safeName };
+  }
+  return { success: false, error: 'File not found on device' };
+};
+

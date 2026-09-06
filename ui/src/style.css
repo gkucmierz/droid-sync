@@ -52,15 +52,25 @@
   --shadow-panel: 0 10px 30px -10px rgba(0, 0, 0, 0.08);
 }
 
-* {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
   outline: none;
 }
 
-*:focus {
-  outline: none;
+*:focus,
+*:focus-visible,
+button:focus,
+button:focus-visible,
+input:focus,
+input:focus-visible,
+a:focus,
+a:focus-visible {
+  outline: none !important;
+  outline-offset: 0 !important;
 }
 
 body {
@@ -111,17 +121,25 @@ body {
 
 /* Header Controls Light Mode */
 [data-theme="light"] .lang-switch {
-  background: rgba(15, 23, 42, 0.06) !important;
+  background: rgba(15, 23, 42, 0.05) !important;
   border-color: rgba(15, 23, 42, 0.12) !important;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.06) !important;
 }
 
 [data-theme="light"] .lang-switch button {
-  color: #475569 !important;
+  color: #64748b !important;
 }
 
 [data-theme="light"] .lang-switch button.active {
-  background: var(--accent-cyan) !important;
-  color: #ffffff !important;
+  background: rgba(2, 132, 199, 0.12) !important;
+  border-color: rgba(2, 132, 199, 0.4) !important;
+  color: #0284c7 !important;
+  box-shadow: 0 1px 4px rgba(2, 132, 199, 0.15) !important;
+}
+
+[data-theme="light"] .lang-switch button:hover:not(.active) {
+  color: #0f172a !important;
+  background: rgba(15, 23, 42, 0.04) !important;
 }
 
 [data-theme="light"] .runner-indicator {

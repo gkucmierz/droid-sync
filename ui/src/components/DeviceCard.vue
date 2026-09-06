@@ -10,7 +10,8 @@ import {
   Folder,
   AlertCircle,
   CheckCircle2,
-  Clock
+  Clock,
+  ChevronRight
 } from 'lucide-vue-next';
 
 const props = defineProps({
@@ -20,6 +21,8 @@ const props = defineProps({
   destinationDir: { type: String, default: '' },
   lastSyncTime: { type: String, default: null }
 });
+
+const emit = defineEmits(['open-battery', 'open-system', 'open-settings']);
 
 const { currentLang, t } = useI18n();
 
@@ -84,9 +87,22 @@ const formatTime = (isoString) => {
 
     <!-- Telemetry & Folder Grid -->
     <div class="telemetry-grid">
-      <!-- Battery Status -->
-      <div class="telemetry-item">
-        <span class="telemetry-label">{{ t.batteryLabel }}</span>
+      <!-- Battery Status (Interactive Modal Trigger) -->
+      <div 
+        class="telemetry-item" 
+        :class="{ 'is-clickable': isOnline }"
+        :role="isOnline ? 'button' : undefined"
+        :tabindex="isOnline ? 0 : undefined"
+        @click="isOnline && emit('open-battery')"
+        @keydown.enter="isOnline && emit('open-battery')"
+        @keydown.space.prevent="isOnline && emit('open-battery')"
+      >
+        <div class="telemetry-header-row">
+          <span class="telemetry-label">{{ t.batteryLabel }}</span>
+          <span v-if="isOnline" class="click-hint">
+            <ChevronRight :size="13" />
+          </span>
+        </div>
         <div class="telemetry-value">
           <component 
             :is="telemetry?.isCharging ? BatteryCharging : Battery" 
@@ -100,18 +116,43 @@ const formatTime = (isoString) => {
         </div>
       </div>
 
-      <!-- Android Version -->
-      <div class="telemetry-item">
-        <span class="telemetry-label">{{ t.systemLabel }}</span>
+      <!-- Android Version (Interactive Modal Trigger) -->
+      <div 
+        class="telemetry-item" 
+        :class="{ 'is-clickable': isOnline }"
+        :role="isOnline ? 'button' : undefined"
+        :tabindex="isOnline ? 0 : undefined"
+        @click="isOnline && emit('open-system')"
+        @keydown.enter="isOnline && emit('open-system')"
+        @keydown.space.prevent="isOnline && emit('open-system')"
+      >
+        <div class="telemetry-header-row">
+          <span class="telemetry-label">{{ t.systemLabel }}</span>
+          <span v-if="isOnline" class="click-hint">
+            <ChevronRight :size="13" />
+          </span>
+        </div>
         <div class="telemetry-value">
           <CheckCircle2 :size="16" style="color: #22d3ee;" />
           <span>{{ telemetry?.androidVersion ? 'Android ' + telemetry.androidVersion : '—' }}</span>
         </div>
       </div>
 
-      <!-- Destination Folder -->
-      <div class="telemetry-item folder-item">
-        <span class="telemetry-label">{{ t.destinationLabel }}</span>
+      <!-- Destination Folder (Interactive Modal Trigger -> Folders tab) -->
+      <div 
+        class="telemetry-item folder-item is-clickable"
+        role="button"
+        tabindex="0"
+        @click="emit('open-settings', 'folders')"
+        @keydown.enter="emit('open-settings', 'folders')"
+        @keydown.space.prevent="emit('open-settings', 'folders')"
+      >
+        <div class="telemetry-header-row">
+          <span class="telemetry-label">{{ t.destinationLabel }}</span>
+          <span class="click-hint">
+            <ChevronRight :size="13" />
+          </span>
+        </div>
         <div class="telemetry-value font-mono folder-value">
           <Folder :size="16" style="color: #f59e0b;" />
           <span class="folder-path">{{ destinationDir }}</span>
@@ -295,6 +336,58 @@ const formatTime = (isoString) => {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 6px 8px;
+  margin: -6px -8px;
+  transition: all 0.2s ease;
+}
+
+.telemetry-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.telemetry-item.is-clickable {
+  cursor: pointer;
+}
+
+.telemetry-item.is-clickable:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(34, 211, 238, 0.25);
+  box-shadow: 0 0 12px rgba(34, 211, 238, 0.08);
+}
+
+.telemetry-item.is-clickable:focus-visible {
+  outline: none;
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(34, 211, 238, 0.4);
+  box-shadow: 0 0 12px rgba(34, 211, 238, 0.15);
+}
+
+.click-hint {
+  display: inline-flex;
+  align-items: center;
+  color: #64748b;
+  opacity: 0.5;
+  transition: all 0.2s ease;
+}
+
+.telemetry-item.is-clickable:hover .click-hint {
+  color: #22d3ee;
+  opacity: 1;
+  transform: translateX(2px);
+}
+
+[data-theme="light"] .telemetry-item.is-clickable:hover {
+  background: rgba(15, 23, 42, 0.04);
+  border-color: rgba(2, 132, 199, 0.3);
+  box-shadow: 0 0 12px rgba(2, 132, 199, 0.08);
+}
+
+[data-theme="light"] .telemetry-item.is-clickable:hover .click-hint {
+  color: #0284c7;
 }
 
 .telemetry-label {

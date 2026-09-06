@@ -1,0 +1,23 @@
+{
+  "destinationDir": "~/Documents/Droid Sync",
+  "screenshotsPath": "./screenshots",
+  "photosPath": "./photos",
+  "phoneScreenshotsDirs": [
+    "/sdcard/Pictures/Screenshots",
+    "/sdcard/DCIM/Screenshots"
+  ],
+  "phoneCameraDirs": [
+    "/sdcard/DCIM/Camera",
+    "/sdcard/DCIM/100ANDRO"
+  ],
+  "hideJsonlFiles": false,
+  "syncScreenshots": true,
+  "syncCamera": true,
+  "pollIntervalMs": 2500,
+  "autoDeleteFromPhone": false,
+  "autoDeleteScreenshots": false,
+  "autoDeleteCamera": false,
+  "wifiIp": "",
+  "wifiPort": 5555,
+  "notifyOnMac": true
+}

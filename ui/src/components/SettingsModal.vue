@@ -1,6 +1,7 @@
 <script setup>
 import { ref, watch, onMounted, onUnmounted } from 'vue';
 import { useI18n } from '../locales.js';
+import ConfirmModal from './ConfirmModal.vue';
 import {
   X,
   Folder,
@@ -15,13 +16,21 @@ import {
   ChevronUp,
   AlertCircle,
   Smartphone,
-  Camera
+  Camera,
+  RotateCcw,
+  Sliders,
+  FileText
 } from 'lucide-vue-next';
 
 const props = defineProps({
   isOpen: { type: Boolean, default: false },
-  currentDir: { type: String, default: '~/Documents/AndroidScreenshots' },
-  cameraDir: { type: String, default: '~/Documents/AndroidPhotos' },
+  initialTab: { type: String, default: 'folders' },
+  parentDir: { type: String, default: '~/Documents/Droid Sync' },
+  screenshotsPath: { type: String, default: './screenshots' },
+  photosPath: { type: String, default: './photos' },
+  hideJsonlFiles: { type: Boolean, default: false },
+  currentDir: { type: String, default: '~/Documents/Droid Sync' },
+  cameraDir: { type: String, default: '~/Documents/Droid Sync/photos' },
   pollIntervalMs: { type: Number, default: 2500 },
   autoDelete: { type: Boolean, default: false },
   autoDeleteScreenshots: { type: Boolean, default: false },
@@ -32,12 +41,15 @@ const props = defineProps({
   telemetry: { type: Object, default: null }
 });
 
-const emit = defineEmits(['close', 'save', 'enable-wireless', 'connect-wifi', 'auto-connect-wireless']);
+const emit = defineEmits(['close', 'save', 'enable-wireless', 'connect-wifi', 'auto-connect-wireless', 'reset-history']);
 
 const { currentLang, t } = useI18n();
 
-const localDir = ref(props.currentDir);
-const localCameraDir = ref(props.cameraDir);
+const activeTab = ref(props.initialTab || 'folders');
+const localParentDir = ref(props.parentDir || props.currentDir);
+const localScreenshotsPath = ref(props.screenshotsPath || './screenshots');
+const localPhotosPath = ref(props.photosPath || './photos');
+const localHideJsonlFiles = ref(Boolean(props.hideJsonlFiles));
 const localInterval = ref(props.pollIntervalMs / 1000);
 const localAutoDeleteScreenshots = ref(props.autoDeleteScreenshots);
 const localAutoDeleteCamera = ref(props.autoDeleteCamera);
@@ -47,11 +59,24 @@ const wifiIp = ref('');
 const wifiPort = ref(5555);
 const isAutoConnecting = ref(false);
 const showManualWireless = ref(false);
+const pendingResetType = ref(null);
 
-watch(() => [props.isOpen, props.telemetry], () => {
-  if (props.isOpen) {
-    localDir.value = props.currentDir;
-    localCameraDir.value = props.cameraDir || '~/Documents/AndroidPhotos';
+watch(() => props.initialTab, (newTab) => {
+  if (newTab) {
+    activeTab.value = newTab;
+  }
+});
+
+// Watch strictly isOpen so telemetry polling ticks NEVER wipe out active user edits
+watch(() => props.isOpen, (newVal, oldVal) => {
+  if (newVal && !oldVal) {
+    if (props.initialTab) {
+      activeTab.value = props.initialTab;
+    }
+    localParentDir.value = props.parentDir || props.currentDir || '~/Documents/Droid Sync';
+    localScreenshotsPath.value = props.screenshotsPath || './screenshots';
+    localPhotosPath.value = props.photosPath || './photos';
+    localHideJsonlFiles.value = Boolean(props.hideJsonlFiles);
     localInterval.value = props.pollIntervalMs / 1000;
     localAutoDeleteScreenshots.value = props.autoDeleteScreenshots ?? props.autoDelete ?? false;
     localAutoDeleteCamera.value = props.autoDeleteCamera ?? false;
@@ -65,8 +90,11 @@ watch(() => [props.isOpen, props.telemetry], () => {
 
 const handleSave = () => {
   emit('save', {
-    destinationDir: localDir.value,
-    cameraDestinationDir: localCameraDir.value,
+    destinationDir: localParentDir.value,
+    screenshotsPath: localScreenshotsPath.value,
+    photosPath: localPhotosPath.value,
+    hideJsonlFiles: localHideJsonlFiles.value,
+    cameraDestinationDir: localPhotosPath.value,
     pollIntervalMs: Math.max(1000, localInterval.value * 1000),
     autoDeleteScreenshots: localAutoDeleteScreenshots.value,
     autoDeleteCamera: localAutoDeleteCamera.value,
@@ -98,11 +126,30 @@ const handleConnectWifi = () => {
   emit('connect-wifi', wifiIp.value.trim(), wifiPort.value);
 };
 
+const handleResetHistory = (type) => {
+  pendingResetType.value = type;
+};
+
+const confirmResetHistory = () => {
+  if (pendingResetType.value) {
+    emit('reset-history', pendingResetType.value);
+    pendingResetType.value = null;
+    emit('close');
+  }
+};
+
 // Universal ESC dismissal with proper cleanup (Rule 6.1)
 const handleKeydown = (e) => {
-  if (e.key === 'Escape' && props.isOpen) {
-    e.stopPropagation();
-    emit('close');
+  if (e.key === 'Escape') {
+    if (pendingResetType.value) {
+      e.stopPropagation();
+      pendingResetType.value = null;
+      return;
+    }
+    if (props.isOpen) {
+      e.stopPropagation();
+      emit('close');
+    }
   }
 };
 
@@ -126,231 +173,384 @@ onUnmounted(() => {
         </button>
       </div>
 
+      <!-- Segmented Tab Navigation -->
+      <div class="modal-tabs-nav">
+        <button 
+          type="button" 
+          class="tab-btn" 
+          :class="{ active: activeTab === 'folders' }"
+          @click="activeTab = 'folders'"
+        >
+          <Folder :size="15" />
+          <span>{{ t.tabFolders }}</span>
+        </button>
+        <button 
+          type="button" 
+          class="tab-btn" 
+          :class="{ active: activeTab === 'sync' }"
+          @click="activeTab = 'sync'"
+        >
+          <Sliders :size="15" />
+          <span>{{ t.tabSync }}</span>
+        </button>
+      </div>
+
       <div class="modal-body">
-        <!-- 1. Screenshots Destination Folder -->
-        <div class="form-group">
-          <label class="form-label">
-            <Folder :size="15" style="color: #f59e0b;" />
-            <span>{{ t.destDirLabel }}</span>
-          </label>
-          <input 
-            v-model="localDir" 
-            type="text" 
-            class="form-input font-mono" 
-            placeholder="~/Documents/AndroidScreenshots"
-          />
-          <span class="form-hint">{{ t.destDirHint }}</span>
-        </div>
+        <!-- ==================== TAB 1: KATALOGI ZAPISU (FOLDERS) ==================== -->
+        <div v-if="activeTab === 'folders'" class="tab-pane animate-fade-in">
+          <!-- Master Destination & Storage Group -->
+          <div class="setting-section-group storage-group">
+            <div class="setting-section-header">
+              <Folder :size="16" style="color: #38bdf8;" />
+              <span>{{ t.parentDirLabel || 'Folder główny na Macu' }}</span>
+            </div>
 
-        <!-- 2. Camera Photos Destination Folder -->
-        <div class="form-group">
-          <label class="form-label">
-            <Folder :size="15" style="color: #c084fc;" />
-            <span>{{ t.destCameraDirLabel }}</span>
-          </label>
-          <input 
-            v-model="localCameraDir" 
-            type="text" 
-            class="form-input font-mono" 
-            placeholder="~/Documents/AndroidPhotos"
-          />
-          <span class="form-hint">{{ t.destCameraDirHint }}</span>
-        </div>
+            <!-- Destination Parent Folder -->
+            <div class="form-group">
+              <label class="form-label">
+                <Folder :size="15" style="color: #38bdf8;" />
+                <span>{{ t.parentDirLabel }}</span>
+              </label>
+              <input 
+                v-model="localParentDir" 
+                type="text" 
+                class="form-input font-mono" 
+                placeholder="~/Documents/Droid Sync"
+              />
+              <span class="form-hint">{{ t.parentDirHint }}</span>
+            </div>
 
-        <!-- 3. Poll Interval -->
-        <div class="form-group">
-          <label class="form-label">
-            <Clock :size="15" style="color: #22d3ee;" />
-            <span>{{ t.intervalLabel }}</span>
-          </label>
-          <div style="display: flex; align-items: center; gap: 10px;">
-            <input 
-              v-model.number="localInterval" 
-              type="number" 
-              min="1" 
-              max="60" 
-              step="0.5" 
-              class="form-input font-mono" 
-              style="width: 120px;" 
-            />
-            <span style="font-size: 0.85rem; color: #94a3b8;">{{ t.intervalUnit }}</span>
-          </div>
-          <span class="form-hint">{{ t.intervalHint }}</span>
-        </div>
+            <!-- Subfolder for Screenshots -->
+            <div class="form-group">
+              <label class="form-label">
+                <Smartphone :size="15" style="color: #22d3ee;" />
+                <span>{{ t.screenshotsRelLabel }}</span>
+              </label>
+              <input 
+                v-model="localScreenshotsPath" 
+                type="text" 
+                class="form-input font-mono" 
+                placeholder="./screenshots"
+              />
+              <span class="form-hint">{{ t.screenshotsRelHint }}</span>
+            </div>
 
-        <!-- 4. Sync Screenshots Toggle -->
-        <div class="toggle-row-group">
-          <div class="toggle-left">
-            <label class="toggle-title-row" for="sync-screenshots-switch">
-              <Smartphone :size="16" style="color: #22d3ee;" />
-              <span class="toggle-title">{{ t.syncScreenshotsLabel }}</span>
-            </label>
-            <span class="form-hint">{{ t.syncScreenshotsHint }}</span>
-          </div>
+            <!-- Subfolder for Camera Photos -->
+            <div class="form-group">
+              <label class="form-label">
+                <Camera :size="15" style="color: #c084fc;" />
+                <span>{{ t.photosRelLabel }}</span>
+              </label>
+              <input 
+                v-model="localPhotosPath" 
+                type="text" 
+                class="form-input font-mono" 
+                placeholder="./photos"
+              />
+              <span class="form-hint">{{ t.photosRelHint }}</span>
+            </div>
 
-          <label class="switch-label" for="sync-screenshots-switch">
-            <input 
-              id="sync-screenshots-switch"
-              v-model="localSyncScreenshots" 
-              type="checkbox" 
-              class="switch-input" 
-            />
-            <div class="switch-slider"></div>
-          </label>
-        </div>
+            <!-- Hide JSONL Files Toggle -->
+            <div class="toggle-row-group">
+              <div class="toggle-left">
+                <label class="toggle-title-row" for="hide-jsonl-switch">
+                  <FileText :size="16" style="color: #94a3b8;" />
+                  <span class="toggle-title">{{ t.hideJsonlLabel }}</span>
+                </label>
+                <span class="form-hint">{{ t.hideJsonlHint }}</span>
+              </div>
 
-        <!-- 5. Sync Camera Photos Toggle -->
-        <div class="toggle-row-group">
-          <div class="toggle-left">
-            <label class="toggle-title-row" for="sync-camera-switch">
-              <Camera :size="16" style="color: #c084fc;" />
-              <span class="toggle-title">{{ t.syncCameraLabel }}</span>
-            </label>
-            <span class="form-hint">{{ t.syncCameraHint }}</span>
+              <label class="switch-label" for="hide-jsonl-switch">
+                <input 
+                  id="hide-jsonl-switch"
+                  v-model="localHideJsonlFiles" 
+                  type="checkbox" 
+                  class="switch-input" 
+                />
+                <div class="switch-slider"></div>
+              </label>
+            </div>
           </div>
 
-          <label class="switch-label" for="sync-camera-switch">
-            <input 
-              id="sync-camera-switch"
-              v-model="localSyncCamera" 
-              type="checkbox" 
-              class="switch-input" 
-            />
-            <div class="switch-slider"></div>
-          </label>
-        </div>
-
-        <!-- 6. Auto-Delete Screenshots Toggle -->
-        <div class="toggle-row-group">
-          <div class="toggle-left">
-            <label class="toggle-title-row" for="auto-delete-screenshots-switch">
-              <Trash2 :size="16" style="color: #f87171;" />
-              <span class="toggle-title">{{ t.autoDeleteScreenshotsLabel }}</span>
-            </label>
-            <span class="form-hint">{{ t.autoDeleteScreenshotsHint }}</span>
-          </div>
-
-          <label class="switch-label" for="auto-delete-screenshots-switch">
-            <input 
-              id="auto-delete-screenshots-switch"
-              v-model="localAutoDeleteScreenshots" 
-              type="checkbox" 
-              class="switch-input" 
-            />
-            <div class="switch-slider"></div>
-          </label>
-        </div>
-
-        <!-- 7. Auto-Delete Camera Photos Toggle (with prominent warning badge) -->
-        <div class="toggle-row-group warning-group">
-          <div class="toggle-left">
-            <label class="toggle-title-row" for="auto-delete-camera-switch">
-              <AlertCircle :size="16" style="color: #ef4444;" />
-              <span class="toggle-title">{{ t.autoDeleteCameraLabel }}</span>
-            </label>
-            <span class="form-hint warning-hint">{{ t.autoDeleteCameraHint }}</span>
-          </div>
-
-          <label class="switch-label" for="auto-delete-camera-switch">
-            <input 
-              id="auto-delete-camera-switch"
-              v-model="localAutoDeleteCamera" 
-              type="checkbox" 
-              class="switch-input switch-danger" 
-            />
-            <div class="switch-slider"></div>
-          </label>
-        </div>
-
-        <!-- 4. Wireless ADB Setup Section -->
-        <div class="wireless-section glass-panel">
-          <div class="section-title-row">
-            <Wifi :size="18" style="color: #10b981;" />
-            <h4 class="section-title">{{ t.wirelessTitle }}</h4>
-          </div>
-          <p class="section-desc">{{ t.wirelessDesc }}</p>
-
-          <!-- 1-Click Auto Connect Card (Zero user hassle) -->
-          <div class="auto-wireless-card">
-            <div class="auto-wireless-header">
-              <div style="display: flex; align-items: center; gap: 8px;">
-                <Zap :size="18" style="color: #22d3ee;" />
-                <h5 class="auto-wireless-title">{{ t.autoWifiTitle }}</h5>
+          <!-- Directory Tree Preview -->
+          <div class="path-preview-box font-mono">
+            <div class="path-preview-header">
+              <Folder :size="13" style="color: #38bdf8;" />
+              <span>Struktura zapisu plików na Macu</span>
+            </div>
+            <div class="path-tree">
+              <div class="tree-line root-line">
+                <Folder :size="14" style="color: #38bdf8;" />
+                <span class="tree-name">{{ localParentDir || '~/Documents/Droid Sync' }}/</span>
+              </div>
+              <div class="tree-line sub-line">
+                <span class="tree-branch">├──</span>
+                <Smartphone :size="13" style="color: #22d3ee;" />
+                <span class="tree-name">{{ localScreenshotsPath || './screenshots' }}</span>
+              </div>
+              <div class="tree-line sub-line">
+                <span class="tree-branch">├──</span>
+                <Camera :size="13" style="color: #c084fc;" />
+                <span class="tree-name">{{ localPhotosPath || './photos' }}</span>
+              </div>
+              <div class="tree-line sub-line">
+                <span class="tree-branch">└──</span>
+                <FileText :size="13" style="color: #94a3b8;" />
+                <span class="tree-name">sync-history-*.jsonl</span>
+                <span class="tree-badge" :class="{ 'is-hidden': localHideJsonlFiles }">
+                  {{ localHideJsonlFiles ? 'Ukryte' : 'Widoczne' }}
+                </span>
               </div>
             </div>
-            <p class="auto-wireless-desc">{{ t.autoWifiDesc }}</p>
+          </div>
+        </div>
 
-            <!-- Detected IP state -->
-            <div v-if="device && !device.isWifi && device.isAuthorized" class="auto-detected-box">
-              <div v-if="telemetry?.wifiIp" class="ip-detected-row">
-                <span class="detected-ip-label">{{ t.detectedIpLabel }}</span>
-                <span class="detected-ip-badge font-mono">{{ telemetry.wifiIp }}</span>
-              </div>
-              <div v-else class="ip-searching-row">
-                <AlertCircle :size="15" style="color: #f59e0b;" />
-                <span>{{ t.detectedIpNotFound }}</span>
+        <!-- ==================== TAB 2: SYNCHRONIZACJA & ADB (SYNC) ==================== -->
+        <div v-else-if="activeTab === 'sync'" class="tab-pane animate-fade-in">
+          <!-- Screenshots Group -->
+          <div class="setting-section-group screenshots-group">
+            <div class="setting-section-header">
+              <Smartphone :size="16" style="color: #22d3ee;" />
+              <span>{{ t.sectionScreenshots }}</span>
+            </div>
+
+            <!-- Sync Screenshots Toggle -->
+            <div class="toggle-row-group">
+              <div class="toggle-left">
+                <label class="toggle-title-row" for="sync-screenshots-switch">
+                  <Smartphone :size="16" style="color: #22d3ee;" />
+                  <span class="toggle-title">{{ t.syncScreenshotsLabel }}</span>
+                </label>
+                <span class="form-hint">{{ t.syncScreenshotsHint }}</span>
               </div>
 
+              <label class="switch-label" for="sync-screenshots-switch">
+                <input 
+                  id="sync-screenshots-switch"
+                  v-model="localSyncScreenshots" 
+                  type="checkbox" 
+                  class="switch-input" 
+                />
+                <div class="switch-slider"></div>
+              </label>
+            </div>
+
+            <!-- Auto-Delete Screenshots Toggle -->
+            <div class="toggle-row-group" :class="{ 'is-disabled': !localSyncScreenshots }">
+              <div class="toggle-left">
+                <label class="toggle-title-row" for="auto-delete-screenshots-switch">
+                  <Trash2 :size="16" style="color: #f87171;" />
+                  <span class="toggle-title">{{ t.autoDeleteScreenshotsLabel }}</span>
+                </label>
+                <span class="form-hint">{{ t.autoDeleteScreenshotsHint }}</span>
+              </div>
+
+              <label class="switch-label" for="auto-delete-screenshots-switch">
+                <input 
+                  id="auto-delete-screenshots-switch"
+                  v-model="localAutoDeleteScreenshots" 
+                  :disabled="!localSyncScreenshots"
+                  type="checkbox" 
+                  class="switch-input" 
+                />
+                <div class="switch-slider"></div>
+              </label>
+            </div>
+
+            <!-- Reset History for Screenshots -->
+            <div class="reset-history-row">
               <button 
-                class="btn-auto-connect" 
-                :disabled="!telemetry?.wifiIp || isAutoConnecting"
-                @click="handleAutoConnect"
+                class="btn-reset-history" 
+                @click="handleResetHistory('screenshots')" 
                 type="button"
               >
-                <Zap :size="15" :class="{ 'animate-pulse': isAutoConnecting }" />
-                <span>{{ isAutoConnecting ? t.btnAutoConnecting : t.btnAutoConnect }}</span>
+                <RotateCcw :size="13" />
+                <span>{{ t.btnResetSync }}</span>
               </button>
             </div>
+          </div>
 
-            <!-- Device is already on Wi-Fi -->
-            <div v-else-if="device?.isWifi" class="wifi-connected-box">
-              <CheckCircle2 :size="16" style="color: #10b981;" />
-              <span>Telefon jest połączony przez Wi-Fi ({{ device.serial }})</span>
+          <!-- Camera Photos Group -->
+          <div class="setting-section-group camera-group">
+            <div class="setting-section-header">
+              <Camera :size="16" style="color: #c084fc;" />
+              <span>{{ t.sectionCamera }}</span>
             </div>
 
-            <!-- No USB phone connected -->
-            <div v-else class="usb-needed-box">
-              <Usb :size="16" style="color: #94a3b8;" />
-              <span>{{ t.connectPrompt }}</span>
+            <!-- Sync Camera Photos Toggle -->
+            <div class="toggle-row-group">
+              <div class="toggle-left">
+                <label class="toggle-title-row" for="sync-camera-switch">
+                  <Camera :size="16" style="color: #c084fc;" />
+                  <span class="toggle-title">{{ t.syncCameraLabel }}</span>
+                </label>
+                <span class="form-hint">{{ t.syncCameraHint }}</span>
+              </div>
+
+              <label class="switch-label" for="sync-camera-switch">
+                <input 
+                  id="sync-camera-switch"
+                  v-model="localSyncCamera" 
+                  type="checkbox" 
+                  class="switch-input" 
+                />
+                <div class="switch-slider"></div>
+              </label>
+            </div>
+
+            <!-- Auto-Delete Camera Photos Toggle -->
+            <div class="toggle-row-group warning-group" :class="{ 'is-disabled': !localSyncCamera }">
+              <div class="toggle-left">
+                <label class="toggle-title-row" for="auto-delete-camera-switch">
+                  <AlertCircle :size="16" style="color: #ef4444;" />
+                  <span class="toggle-title">{{ t.autoDeleteCameraLabel }}</span>
+                </label>
+                <span class="form-hint warning-hint">{{ t.autoDeleteCameraHint }}</span>
+              </div>
+
+              <label class="switch-label" for="auto-delete-camera-switch">
+                <input 
+                  id="auto-delete-camera-switch"
+                  v-model="localAutoDeleteCamera" 
+                  :disabled="!localSyncCamera"
+                  type="checkbox" 
+                  class="switch-input switch-danger" 
+                />
+                <div class="switch-slider"></div>
+              </label>
+            </div>
+
+            <!-- Reset History for Camera -->
+            <div class="reset-history-row">
+              <button 
+                class="btn-reset-history" 
+                @click="handleResetHistory('camera')" 
+                type="button"
+              >
+                <RotateCcw :size="13" />
+                <span>{{ t.btnResetSync }}</span>
+              </button>
             </div>
           </div>
 
-          <!-- Collapsible Manual Fallback -->
-          <div class="manual-wireless-toggle" @click="showManualWireless = !showManualWireless">
-            <span>{{ t.manualSectionTitle }}</span>
-            <component :is="showManualWireless ? ChevronUp : ChevronDown" :size="16" />
+          <!-- General Settings Group -->
+          <div class="setting-section-group general-group">
+            <div class="setting-section-header">
+              <Clock :size="16" style="color: #f59e0b;" />
+              <span>{{ t.sectionGeneral }}</span>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">
+                <Clock :size="15" style="color: #f59e0b;" />
+                <span>{{ t.intervalLabel }}</span>
+              </label>
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <input 
+                  v-model.number="localInterval" 
+                  type="number" 
+                  min="1" 
+                  max="60" 
+                  step="0.5" 
+                  class="form-input font-mono" 
+                  style="width: 120px;" 
+                />
+                <span style="font-size: 0.85rem; color: #94a3b8;">{{ t.intervalUnit }}</span>
+              </div>
+              <span class="form-hint">{{ t.intervalHint }}</span>
+            </div>
           </div>
 
-          <div v-if="showManualWireless" class="wireless-steps animate-fade-in">
-            <!-- Step 1: Enable TCP/IP -->
-            <div class="step-card">
-              <span class="step-num">{{ t.step1Title }}</span>
-              <div class="step-content">
-                <span class="step-text">{{ t.step1Text }}</span>
-                <button class="step-btn" @click="handleEnableWireless" type="button">
-                  <Usb :size="14" />
-                  <span>{{ t.step1Btn(wifiPort) }}</span>
+          <!-- Wireless ADB Setup Section -->
+          <div class="wireless-section glass-panel">
+            <div class="section-title-row">
+              <Wifi :size="18" style="color: #10b981;" />
+              <h4 class="section-title">{{ t.wirelessTitle }}</h4>
+            </div>
+            <p class="section-desc">{{ t.wirelessDesc }}</p>
+
+            <!-- 1-Click Auto Connect Card (Zero user hassle) -->
+            <div class="auto-wireless-card">
+              <div class="auto-wireless-header">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <Zap :size="18" style="color: #22d3ee;" />
+                  <h5 class="auto-wireless-title">{{ t.autoWifiTitle }}</h5>
+                </div>
+              </div>
+              <p class="auto-wireless-desc">{{ t.autoWifiDesc }}</p>
+
+              <!-- Detected IP state -->
+              <div v-if="device && !device.isWifi && device.isAuthorized" class="auto-detected-box">
+                <div v-if="telemetry?.wifiIp" class="ip-detected-row">
+                  <span class="detected-ip-label">{{ t.detectedIpLabel }}</span>
+                  <span class="detected-ip-badge font-mono">{{ telemetry.wifiIp }}</span>
+                </div>
+                <div v-else class="ip-searching-row">
+                  <AlertCircle :size="15" style="color: #f59e0b;" />
+                  <span>{{ t.detectedIpNotFound }}</span>
+                </div>
+
+                <button 
+                  class="btn-auto-connect" 
+                  :disabled="!telemetry?.wifiIp || isAutoConnecting"
+                  @click="handleAutoConnect"
+                  type="button"
+                >
+                  <Zap :size="15" :class="{ 'animate-pulse': isAutoConnecting }" />
+                  <span>{{ isAutoConnecting ? t.btnAutoConnecting : t.btnAutoConnect }}</span>
                 </button>
+              </div>
+
+              <!-- Device is already on Wi-Fi -->
+              <div v-else-if="device?.isWifi" class="wifi-connected-box">
+                <CheckCircle2 :size="16" style="color: #10b981;" />
+                <span>Telefon jest połączony przez Wi-Fi ({{ device.serial }})</span>
+              </div>
+
+              <!-- No USB phone connected -->
+              <div v-else class="usb-needed-box">
+                <Usb :size="16" style="color: #94a3b8;" />
+                <span>{{ t.connectPrompt }}</span>
               </div>
             </div>
 
-            <!-- Step 2: Connect IP -->
-            <div class="step-card">
-              <span class="step-num">{{ t.step2Title }}</span>
-              <div class="step-content">
-                <span class="step-text">{{ t.step2Text }}</span>
-                <div style="display: flex; gap: 8px; margin-top: 6px;">
-                  <input 
-                    v-model="wifiIp" 
-                    type="text" 
-                    :placeholder="t.step2Plh" 
-                    class="form-input font-mono" 
-                    style="flex: 1;" 
-                  />
-                  <button class="step-btn connect-btn" @click="handleConnectWifi" type="button">
-                    <Wifi :size="14" />
-                    <span>{{ t.btnConnect }}</span>
+            <!-- Collapsible Manual Fallback -->
+            <div class="manual-wireless-toggle" @click="showManualWireless = !showManualWireless">
+              <span>{{ t.manualSectionTitle }}</span>
+              <component :is="showManualWireless ? ChevronUp : ChevronDown" :size="16" />
+            </div>
+
+            <div v-if="showManualWireless" class="wireless-steps animate-fade-in">
+              <!-- Step 1: Enable TCP/IP -->
+              <div class="step-card">
+                <span class="step-num">{{ t.step1Title }}</span>
+                <div class="step-content">
+                  <span class="step-text">{{ t.step1Text }}</span>
+                  <button class="step-btn" @click="handleEnableWireless" type="button">
+                    <Usb :size="14" />
+                    <span>{{ t.step1Btn(wifiPort) }}</span>
                   </button>
+                </div>
+              </div>
+
+              <!-- Step 2: Connect IP -->
+              <div class="step-card">
+                <span class="step-num">{{ t.step2Title }}</span>
+                <div class="step-content">
+                  <span class="step-text">{{ t.step2Text }}</span>
+                  <div style="display: flex; gap: 8px; margin-top: 6px;">
+                    <input 
+                      v-model="wifiIp" 
+                      type="text" 
+                      :placeholder="t.step2Plh" 
+                      class="form-input font-mono" 
+                      style="flex: 1;" 
+                    />
+                    <button class="step-btn connect-btn" @click="handleConnectWifi" type="button">
+                      <Wifi :size="14" />
+                      <span>{{ t.btnConnect }}</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -367,6 +567,19 @@ onUnmounted(() => {
         </button>
       </div>
     </div>
+
+    <!-- Custom Reset History Confirm Modal (Replaces clunky browser confirm) -->
+    <ConfirmModal 
+      :isOpen="Boolean(pendingResetType)"
+      :title="t.confirmResetModalTitle"
+      :description="t.confirmResetModalDesc"
+      :safeNotice="''"
+      :confirmText="t.confirmResetModalConfirmBtn"
+      :cancelText="t.btnCancel"
+      :isDanger="false"
+      @confirm="confirmResetHistory"
+      @close="pendingResetType = null"
+    />
   </div>
 </template>
 
@@ -387,7 +600,7 @@ onUnmounted(() => {
   width: 95vw;
   max-width: 650px;
   max-height: 90vh;
-  overflow-y: auto;
+  overflow: hidden;
   background: rgba(15, 23, 42, 0.95);
   border: 1px solid rgba(34, 211, 238, 0.3);
   border-radius: 14px;
@@ -402,6 +615,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-shrink: 0;
 }
 
 .modal-title {
@@ -440,11 +654,149 @@ onUnmounted(() => {
   box-shadow: none !important;
 }
 
+/* Tab Navigation */
+.modal-tabs-nav {
+  display: flex;
+  background: rgba(10, 15, 29, 0.7);
+  padding: 6px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.tab-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border-radius: 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: #94a3b8;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.tab-btn:hover {
+  color: #f8fafc;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.tab-btn.active {
+  color: #22d3ee;
+  background: rgba(34, 211, 238, 0.12);
+  border-color: rgba(34, 211, 238, 0.25);
+  box-shadow: 0 2px 10px rgba(34, 211, 238, 0.1);
+}
+
+.tab-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Path Tree Preview */
+.path-preview-box {
+  background: rgba(10, 15, 29, 0.6);
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  border-radius: 10px;
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.path-preview-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #38bdf8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.path-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: 4px;
+}
+
+.tree-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+}
+
+.root-line .tree-name {
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.sub-line {
+  padding-left: 8px;
+}
+
+.tree-branch {
+  color: #475569;
+  font-weight: 600;
+}
+
+.sub-line .tree-name {
+  color: #cbd5e1;
+}
+
+.tree-badge {
+  font-size: 0.68rem;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  font-weight: 600;
+  margin-left: 4px;
+}
+
+.tree-badge.is-hidden {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
 .modal-body {
   padding: 24px;
   display: flex;
   flex-direction: column;
   gap: 20px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.modal-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.modal-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.modal-body::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+
+.modal-body::-webkit-scrollbar-thumb:hover {
+  background: rgba(34, 211, 238, 0.4);
 }
 
 .form-group {
@@ -482,6 +834,67 @@ onUnmounted(() => {
   font-size: 0.75rem;
   color: #64748b;
   line-height: 1.4;
+}
+
+/* Section Groups */
+.setting-section-group {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  transition: all 0.2s ease;
+}
+
+.setting-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.storage-group {
+  border-color: rgba(56, 189, 248, 0.25);
+  background: rgba(56, 189, 248, 0.02);
+}
+.storage-group .setting-section-header {
+  color: #38bdf8;
+}
+
+.screenshots-group {
+  border-color: rgba(34, 211, 238, 0.25);
+  background: rgba(34, 211, 238, 0.02);
+}
+.screenshots-group .setting-section-header {
+  color: #22d3ee;
+}
+
+.camera-group {
+  border-color: rgba(192, 132, 252, 0.25);
+  background: rgba(192, 132, 252, 0.02);
+}
+.camera-group .setting-section-header {
+  color: #c084fc;
+}
+
+.general-group {
+  border-color: rgba(245, 158, 11, 0.25);
+  background: rgba(245, 158, 11, 0.02);
+}
+.general-group .setting-section-header {
+  color: #f59e0b;
+}
+
+.is-disabled {
+  opacity: 0.45;
+  pointer-events: none;
 }
 
 /* LoL Style Switch */
@@ -831,6 +1244,9 @@ onUnmounted(() => {
   align-items: center;
   justify-content: flex-end;
   gap: 12px;
+  flex-shrink: 0;
+  background: rgba(10, 16, 30, 0.5);
+  backdrop-filter: blur(8px);
 }
 
 .btn-cancel {
@@ -867,5 +1283,32 @@ onUnmounted(() => {
 .btn-save:hover {
   background: #67e8f9;
   box-shadow: 0 0 15px rgba(34, 211, 238, 0.4);
+}
+
+.reset-history-row {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 4px;
+}
+
+.btn-reset-history {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #94a3b8;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-reset-history:hover {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #f87171;
 }
 </style>
