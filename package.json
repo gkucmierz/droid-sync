@@ -1,6 +1,6 @@
 {
   "name": "droid-sync",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Android Screenshot & Media Runner with Vue 3 Web UI",
   "private": true,
   "type": "module",

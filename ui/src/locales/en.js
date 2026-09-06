@@ -80,6 +80,10 @@ export default {
   // Settings Modal - Tabs & Sections
   tabFolders: 'Folders & Storage',
   tabSync: 'Sync & ADB',
+  treePreviewTitle: 'File storage structure on Mac',
+  badgeHidden: 'Hidden',
+  badgeVisible: 'Visible',
+  wifiConnectedDevice: (serial) => `Phone connected via Wi-Fi (${serial})`,
   sectionScreenshots: 'Screenshots',
   sectionCamera: 'Camera Photos',
   sectionGeneral: 'General Settings',

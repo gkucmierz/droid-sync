@@ -125,7 +125,7 @@ const openSystemModal = () => {
         <div>
           <div style="display: flex; align-items: center; gap: 8px;">
             <h1 class="app-title">droid-sync</h1>
-            <span class="app-version font-mono">v1.1.0</span>
+            <span class="app-version font-mono">v1.1.1</span>
           </div>
           <p class="app-subtitle">{{ t.appSubtitle }}</p>
         </div>
@@ -527,6 +527,13 @@ const openSystemModal = () => {
 .btn-theme-toggle:hover {
   background: var(--btn-bg-hover);
   border-color: rgba(251, 191, 36, 0.5);
+  box-shadow: 0 0 10px rgba(251, 191, 36, 0.2);
+}
+
+:global([data-theme="light"]) .btn-theme-toggle:hover {
+  border-color: rgba(168, 85, 247, 0.5) !important;
+  background: rgba(168, 85, 247, 0.08) !important;
+  box-shadow: 0 0 10px rgba(168, 85, 247, 0.2) !important;
 }
 
 .theme-icon-sun {
@@ -541,6 +548,12 @@ const openSystemModal = () => {
   stroke: #c084fc !important;
   filter: drop-shadow(0 0 6px rgba(192, 132, 252, 0.6));
   transition: transform 0.25s ease;
+}
+
+:global([data-theme="light"]) .theme-icon-moon {
+  color: #9333ea !important;
+  stroke: #9333ea !important;
+  filter: drop-shadow(0 0 6px rgba(147, 51, 234, 0.35)) !important;
 }
 
 .btn-theme-toggle:hover .theme-icon-sun {

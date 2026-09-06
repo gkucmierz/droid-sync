@@ -7,13 +7,12 @@ on:
 
 jobs:
   deploy:
-    runs-on: self-hosted
+    runs-on: self-hosted-pl
     steps:
       - name: Check out repository code
         uses: actions/checkout@v4
 
       - name: Build and deploy with Docker Compose
         run: |
-          # Clean up previous containers if needed
-          docker compose down --remove-orphans || true
-          docker compose up -d --build
+          docker compose build
+          docker compose up -d --remove-orphans

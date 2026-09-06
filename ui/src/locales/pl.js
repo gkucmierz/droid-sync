@@ -80,6 +80,10 @@ export default {
   // Settings Modal - Tabs & Sections
   tabFolders: 'Katalogi zapisu',
   tabSync: 'Synchronizacja & ADB',
+  treePreviewTitle: 'Struktura zapisu plików na Macu',
+  badgeHidden: 'Ukryte',
+  badgeVisible: 'Widoczne',
+  wifiConnectedDevice: (serial) => `Telefon jest połączony przez Wi-Fi (${serial})`,
   sectionScreenshots: 'Zrzuty ekranu (Screenshots)',
   sectionCamera: 'Zdjęcia z aparatu (Camera)',
   sectionGeneral: 'Ustawienia ogólne',

@@ -276,7 +276,7 @@ onUnmounted(() => {
           <div class="path-preview-box font-mono">
             <div class="path-preview-header">
               <Folder :size="13" style="color: #38bdf8;" />
-              <span>Struktura zapisu plików na Macu</span>
+              <span>{{ t.treePreviewTitle }}</span>
             </div>
             <div class="path-tree">
               <div class="tree-line root-line">
@@ -298,7 +298,7 @@ onUnmounted(() => {
                 <FileText :size="13" style="color: #94a3b8;" />
                 <span class="tree-name">sync-history-*.jsonl</span>
                 <span class="tree-badge" :class="{ 'is-hidden': localHideJsonlFiles }">
-                  {{ localHideJsonlFiles ? 'Ukryte' : 'Widoczne' }}
+                  {{ localHideJsonlFiles ? t.badgeHidden : t.badgeVisible }}
                 </span>
               </div>
             </div>
@@ -504,7 +504,7 @@ onUnmounted(() => {
               <!-- Device is already on Wi-Fi -->
               <div v-else-if="device?.isWifi" class="wifi-connected-box">
                 <CheckCircle2 :size="16" style="color: #10b981;" />
-                <span>Telefon jest połączony przez Wi-Fi ({{ device.serial }})</span>
+                <span>{{ t.wifiConnectedDevice(device.serial) }}</span>
               </div>
 
               <!-- No USB phone connected -->
