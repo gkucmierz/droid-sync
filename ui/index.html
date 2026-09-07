@@ -24,9 +24,7 @@
           document.documentElement.classList.add('preload');
           window.addEventListener('DOMContentLoaded', function() {
             requestAnimationFrame(function() {
-              requestAnimationFrame(function() {
-                document.documentElement.classList.remove('preload');
-              });
+              document.documentElement.classList.remove('preload');
             });
           });
         } catch (e) {}

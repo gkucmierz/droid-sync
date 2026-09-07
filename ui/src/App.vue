@@ -100,9 +100,7 @@ const openSystemModal = () => {
 
 onMounted(() => {
   requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      document.documentElement.classList.remove('preload');
-    });
+    document.documentElement.classList.remove('preload');
   });
 });
 </script>
