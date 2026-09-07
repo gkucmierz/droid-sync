@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue';
+import { ref, onMounted } from 'vue';
 import {
   Camera,
   RefreshCw,
@@ -97,6 +97,14 @@ const openSystemModal = () => {
     refreshTelemetry();
   }
 };
+
+onMounted(() => {
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      document.documentElement.classList.remove('preload');
+    });
+  });
+});
 </script>
 
 <template>

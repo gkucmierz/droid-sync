@@ -8,6 +8,30 @@
     <!-- PWA & Mobile Web App Meta -->
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="theme-color" content="#182234" />
+    <!-- Synchronous Theme Initialization (Zero FOUC / Theme Flash) -->
+    <script>
+      (function() {
+        try {
+          var saved = localStorage.getItem('droid_sync_theme');
+          var supportDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+          var t = (saved === 'light' || saved === 'dark') ? saved : (supportDark ? 'dark' : 'light');
+          document.documentElement.setAttribute('data-theme', t);
+          document.documentElement.style.colorScheme = t;
+          var metaTheme = document.querySelector('meta[name="theme-color"]');
+          if (metaTheme) {
+            metaTheme.setAttribute('content', t === 'dark' ? '#182234' : '#f1f5f9');
+          }
+          document.documentElement.classList.add('preload');
+          window.addEventListener('DOMContentLoaded', function() {
+            requestAnimationFrame(function() {
+              requestAnimationFrame(function() {
+                document.documentElement.classList.remove('preload');
+              });
+            });
+          });
+        } catch (e) {}
+      })();
+    </script>
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />

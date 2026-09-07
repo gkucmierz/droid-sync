@@ -52,6 +52,22 @@
   --shadow-panel: 0 10px 30px -10px rgba(0, 0, 0, 0.08);
 }
 
+html {
+  background-color: var(--bg-dark);
+  color-scheme: dark;
+}
+
+html[data-theme="light"] {
+  background-color: var(--bg-base);
+  color-scheme: light;
+}
+
+/* Suppress all transitions during page load to prevent theme flash */
+html.preload,
+html.preload * {
+  transition: none !important;
+}
+
 *,
 *::before,
 *::after {
